@@ -45,8 +45,15 @@ router.post("/", async (req, res) => {
   try {
     const result = await pool.query(
       `INSERT INTO businesses
-      (business_name, website, phone_number, email, industry, status)
-      VALUES ($1,$2,$3,$4,$5,$6)
+      (
+        business_name,
+        website,
+        phone_number,
+        email,
+        industry,
+        business_status
+        )
+        VALUES ($1,$2,$3,$4,$5,$6)
       RETURNING *`,
       [
         business_name,
@@ -67,17 +74,42 @@ router.post("/", async (req, res) => {
 
 // UPDATE business
 router.put("/:id", async (req, res) => {
+
+  const {
+    business_name,
+    website,
+    phone_number,
+    email,
+    industry,
+    business_status
+  } = req.body;
+  
   try {
     const result = await pool.query(
       `UPDATE businesses
-       SET status = $1,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE business_id = $2
+       SET 
+         business_status = $1,
+         website = $2,
+         phone_number = $3,
+         email = $4,
+         industry = $5,
+         business_status = $ 6,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE business_id = $7
        RETURNING *`,
-      [req.body.status, req.params.id]
+      [
+        business_name,
+        website,
+        phone_number,
+        email,
+        industry,
+        business_status, 
+        req.params.id
+      ]
     );
 
     res.json(result.rows[0]);
+    
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Update failed" });
