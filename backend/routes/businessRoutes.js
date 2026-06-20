@@ -39,7 +39,7 @@ router.post("/", async (req, res) => {
     phone_number,
     email,
     industry,
-    status
+    business_status
   } = req.body;
 
   try {
@@ -54,7 +54,7 @@ router.post("/", async (req, res) => {
         phone_number,
         email,
         industry,
-        status
+        business_status
       ]
     );
 
