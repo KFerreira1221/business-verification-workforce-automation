@@ -4,7 +4,7 @@ function Reports() {
             <h1>Reports</h1>
             <button>Generate Report</button>
             <br /><br />
-            <buton>Download PDF</button>
+            <button>Download PDF</button>
         </div>
     );
 }
