@@ -219,3 +219,42 @@ ON system_users(email);
 -- Active
 -- Pending
 -- Inactive
+
+CREATE TABLE IF NOT EXISTS activity_logs (
+    log_id SERIAL PRIMARY KEY,
+    action_type VARCHAR(100),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE OR REPLACE VIEW business_verification_summary AS
+SELECT 
+    b.business_id,
+    b.business_name,
+    b.website,
+    vr.verification_status,
+    vr.confidence_score,
+    vr.discrepancies,
+    vr.verified_at
+FROM businesses b
+LEFT JOIN verification_records vr
+ON b.business_id = vr.business_id;
+
+CREATE INDEX IF NOT EXISTS idx_business_name ON businesses(business_name);
+CREATE INDEX IF NOT EXISTS idx_verification_status ON verification_records(verification_status);
+CREATE INDEX IF NOT EXISTS idx_documents_business_id ON documents(business_id);
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = CURRENT_TIMESTAMP;
+   RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_businesses_updated_at ON businesses;
+
+CREATE TRIGGER update_businesses_updated_at
+BEFORE UPDATE ON businesses
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
