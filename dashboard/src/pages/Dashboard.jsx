@@ -1,14 +1,42 @@
 function Dashboard() {
   return (
-    <div>
-      <h1>AI Business Verification Dashboard</h1>
+    <div className="container">
 
-      <h3>System Overview</h3>
+      <h1>AI Business Verification & Workforce Automation</h1>
 
-      <p>Total Businesses: 50</p>
-      <p>Documents Processed: 120</p>
-      <p>Pending Reviews: 8</p>
-      <p>Verified Businesses: 42</p>
+      <p>
+        Intelligent business verification, document processing,
+        and workforce automation powered by Artificial Intelligence.
+      </p>
+
+      <div className="cards">
+
+        <div className="card">
+          <h3>Businesses</h3>
+          <h2>50</h2>
+          <p>Registered companies in the system</p>
+        </div>
+
+        <div className="card">
+          <h3>Documents</h3>
+          <h2>120</h2>
+          <p>Employee and business documents uploaded</p>
+        </div>
+
+        <div className="card">
+          <h3>Verified</h3>
+          <h2>44</h2>
+          <p>Businesses successfully verified by AI</p>
+        </div>
+
+        <div className="card">
+          <h3>Pending Review</h3>
+          <h2>6</h2>
+          <p>Awaiting administrator approval</p>
+        </div>
+
+      </div>
+
     </div>
   );
 }
