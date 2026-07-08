@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Verification Backend</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div class="app">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Backend Operations Center</p>
+        <h1>AI Business Verification Engine</h1>
+        <p class="subtitle">
+          Chromium crawler, API status, confidence scoring, and verification monitoring.
+        </p>
+      </div>
+
+      <div class="status-pill">
+        <span class="dot"></span>
+        API Online
+      </div>
+    </header>
+
+    <section class="cards">
+      <div class="card"><p>API Status</p><h2 id="apiStatus">Online</h2></div>
+      <div class="card"><p>Database</p><h2 id="dbStatus">Checking...</h2></div>
+      <div class="card"><p>Chromium</p><h2 id="chromiumStatus">Ready</h2></div>
+      <div class="card"><p>Ollama</p><h2 id="ollamaStatus">Pending</h2></div>
+    </section>
+
+    <main class="grid">
+      <section class="panel crawler-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Live Viewer</p>
+            <h2>Chromium Crawler Screen</h2>
+          </div>
+          <button id="runBtn">Run Test Scan</button>
+        </div>
+
+        <div class="browser-box">
+          <div class="browser-top">
+            <span></span><span></span><span></span>
+            <p>crawler://verification-engine</p>
+          </div>
+
+          <div class="browser-body" id="crawlerScreen">
+            <div class="globe">🌐</div>
+            <h3>Waiting for scan...</h3>
+            <p>Run a test verification to activate Chromium.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Verification Result</p>
+        <h2 id="scanTitle">No scan yet</h2>
+
+        <div class="score-ring">
+          <span id="confidenceScore">0%</span>
+        </div>
+
+        <div class="evidence">
+          <p id="websiteEvidence">○ Website evidence</p>
+          <p id="phoneEvidence">○ Phone evidence</p>
+          <p id="addressEvidence">○ Address evidence</p>
+        </div>
+      </section>
+    </main>
+
+    <section class="panel">
+      <p class="eyebrow">Data Import Center</p>
+      <h2>Load Individual Files</h2>
+
+      <h3>Business Dataset</h3>
+      <div class="button-row">
+        <button id="listFilesBtn">Show Input Files</button>
+        <button id="loadBusinessBtn">Load Business Dataset</button>
+      </div>
+
+      <h3>Business Documents</h3>
+      <div class="button-row">
+        <button id="loadBusinessLicenseBtn">Load Business License</button>
+        <button id="loadVendorBtn">Load Vendor Registration</button>
+        <button id="loadW9Btn">Load W9 Form</button>
+        <button id="loadInsuranceBtn">Load Insurance</button>
+        <button id="loadInvoiceBtn">Load Invoice</button>
+      </div>
+
+      <h3>Employee Documents</h3>
+      <div class="button-row">
+        <button id="loadOnboardingBtn">Load Onboarding</button>
+        <button id="loadEmploymentBtn">Load Employment Verification</button>
+        <button id="loadBackgroundBtn">Load Background Check</button>
+        <button id="loadTrainingBtn">Load Training Record</button>
+        <button id="loadComplianceBtn">Load Compliance Certificate</button>
+      </div>
+
+      <div id="loadResults" class="evidence">
+        <p>No files loaded yet.</p>
+      </div>
+    </section>
+
+    <section class="panel console">
+      <p class="eyebrow">Backend Console</p>
+      <div id="activityLog">
+        <p>System initialized. Waiting for CSV data and verification requests.</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
