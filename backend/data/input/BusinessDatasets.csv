@@ -1,0 +1,51 @@
+business_name,website,phone_number,email,industry,status
+Business 1 LLC,www.business1.com,561-555-1001,contact1@business1.com,Healthcare,Pending
+Business 2 LLC,www.business2.com,561-555-1002,contact2@business2.com,Construction,Inactive
+Business 3 LLC,www.business3.com,561-555-1003,contact3@business3.com,Logistics,Active
+Business 4 LLC,www.business4.com,561-555-1004,contact4@business4.com,Finance,Pending
+Business 5 LLC,www.business5.com,561-555-1005,contact5@business5.com,Retail,Inactive
+Business 6 LLC,www.business6.com,561-555-1006,contact6@business6.com,Manufacturing,Active
+Business 7 LLC,www.business7.com,561-555-1007,contact7@business7.com,Marketing,Pending
+Business 8 LLC,www.business8.com,561-555-1008,contact8@business8.com,Consulting,Inactive
+Business 9 LLC,www.business9.com,561-555-1009,contact9@business9.com,HR Services,Active
+Business 10 LLC,www.business10.com,561-555-1010,contact10@business10.com,Technology,Pending
+Business 11 LLC,www.business11.com,561-555-1011,contact11@business11.com,Healthcare,Inactive
+Business 12 LLC,www.business12.com,561-555-1012,contact12@business12.com,Construction,Active
+Business 13 LLC,www.business13.com,561-555-1013,contact13@business13.com,Logistics,Pending
+Business 14 LLC,www.business14.com,561-555-1014,contact14@business14.com,Finance,Inactive
+Business 15 LLC,www.business15.com,561-555-1015,contact15@business15.com,Retail,Active
+Business 16 LLC,www.business16.com,561-555-1016,contact16@business16.com,Manufacturing,Pending
+Business 17 LLC,www.business17.com,561-555-1017,contact17@business17.com,Marketing,Inactive
+Business 18 LLC,www.business18.com,561-555-1018,contact18@business18.com,Consulting,Active
+Business 19 LLC,www.business19.com,561-555-1019,contact19@business19.com,HR Services,Pending
+Business 20 LLC,www.business20.com,561-555-1020,contact20@business20.com,Technology,Inactive
+Business 21 LLC,www.business21.com,561-555-1021,contact21@business21.com,Healthcare,Active
+Business 22 LLC,www.business22.com,561-555-1022,contact22@business22.com,Construction,Pending
+Business 23 LLC,www.business23.com,561-555-1023,contact23@business23.com,Logistics,Inactive
+Business 24 LLC,www.business24.com,561-555-1024,contact24@business24.com,Finance,Active
+Business 25 LLC,www.business25.com,561-555-1025,contact25@business25.com,Retail,Pending
+Business 26 LLC,www.business26.com,561-555-1026,contact26@business26.com,Manufacturing,Inactive
+Business 27 LLC,www.business27.com,561-555-1027,contact27@business27.com,Marketing,Active
+Business 28 LLC,www.business28.com,561-555-1028,contact28@business28.com,Consulting,Pending
+Business 29 LLC,www.business29.com,561-555-1029,contact29@business29.com,HR Services,Inactive
+Business 30 LLC,www.business30.com,561-555-1030,contact30@business30.com,Technology,Active
+Business 31 LLC,www.business31.com,561-555-1031,contact31@business31.com,Healthcare,Pending
+Business 32 LLC,www.business32.com,561-555-1032,contact32@business32.com,Construction,Inactive
+Business 33 LLC,www.business33.com,561-555-1033,contact33@business33.com,Logistics,Active
+Business 34 LLC,www.business34.com,561-555-1034,contact34@business34.com,Finance,Pending
+Business 35 LLC,www.business35.com,561-555-1035,contact35@business35.com,Retail,Inactive
+Business 36 LLC,www.business36.com,561-555-1036,contact36@business36.com,Manufacturing,Active
+Business 37 LLC,www.business37.com,561-555-1037,contact37@business37.com,Marketing,Pending
+Business 38 LLC,www.business38.com,561-555-1038,contact38@business38.com,Consulting,Inactive
+Business 39 LLC,www.business39.com,561-555-1039,contact39@business39.com,HR Services,Active
+Business 40 LLC,www.business40.com,561-555-1040,contact40@business40.com,Technology,Pending
+Business 41 LLC,www.business41.com,561-555-1041,contact41@business41.com,Healthcare,Inactive
+Business 42 LLC,www.business42.com,561-555-1042,contact42@business42.com,Construction,Active
+Business 43 LLC,www.business43.com,561-555-1043,contact43@business43.com,Logistics,Pending
+Business 44 LLC,www.business44.com,561-555-1044,contact44@business44.com,Finance,Inactive
+Business 45 LLC,www.business45.com,561-555-1045,contact45@business45.com,Retail,Active
+Business 46 LLC,www.business46.com,561-555-1046,contact46@business46.com,Manufacturing,Pending
+Business 47 LLC,www.business47.com,561-555-1047,contact47@business47.com,Marketing,Inactive
+Business 48 LLC,www.business48.com,561-555-1048,contact48@business48.com,Consulting,Active
+Business 49 LLC,www.business49.com,561-555-1049,contact49@business49.com,HR Services,Pending
+Business 50 LLC,www.business50.com,561-555-1050,contact50@business50.com,Technology,Inactive
