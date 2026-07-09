@@ -96,3 +96,39 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     created_by VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- ==========================================
+-- Workflow Automation Improvements
+-- Adds status tracking and dashboard progress support
+-- ==========================================
+
+CREATE OR REPLACE FUNCTION calculate_workflow_progress(status_value VARCHAR)
+RETURNS INT AS $$
+BEGIN
+    CASE LOWER(COALESCE(status_value, ''))
+        WHEN 'completed' THEN RETURN 100;
+        WHEN 'in progress' THEN RETURN 60;
+        WHEN 'pending' THEN RETURN 25;
+        WHEN 'blocked' THEN RETURN 10;
+        ELSE RETURN 0;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE VIEW workflow_task_summary AS
+SELECT
+    wt.task_id,
+    wt.business_id,
+    b.business_name,
+    wt.task_name,
+    wt.task_type,
+    wt.task_status,
+    calculate_workflow_progress(wt.task_status) AS progress_percentage,
+    wt.assigned_to,
+    wt.due_date,
+    wt.completed_at
+FROM workflow_tasks wt
+LEFT JOIN businesses b ON wt.business_id = b.business_id;
+
+CREATE INDEX IF NOT EXISTS idx_workflow_tasks_status ON workflow_tasks(task_status);
+CREATE INDEX IF NOT EXISTS idx_workflow_tasks_business_id ON workflow_tasks(business_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_tasks_due_date ON workflow_tasks(due_date);
