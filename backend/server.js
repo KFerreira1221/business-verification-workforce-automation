@@ -9,6 +9,8 @@ const businessRoutes = require("./routes/businessRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const verificationRoutes = require("./routes/verificationRoutes");
 const workflowRoutes = require("./routes/workflowRoutes");
+const queueRoutes = require("./routes/queueRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -50,6 +52,8 @@ app.use("/api/businesses", businessRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/workflows", workflowRoutes);
+app.use("/api/queue", queueRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

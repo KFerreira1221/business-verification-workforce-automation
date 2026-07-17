@@ -132,3 +132,55 @@ LEFT JOIN businesses b ON wt.business_id = b.business_id;
 CREATE INDEX IF NOT EXISTS idx_workflow_tasks_status ON workflow_tasks(task_status);
 CREATE INDEX IF NOT EXISTS idx_workflow_tasks_business_id ON workflow_tasks(business_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_tasks_due_date ON workflow_tasks(due_date);
+
+
+-- ==========================================
+-- Verification Queue
+-- Stores verification jobs and their processing status
+-- ==========================================
+CREATE TABLE IF NOT EXISTS verification_queue (
+    queue_id SERIAL PRIMARY KEY,
+    business_id INT REFERENCES businesses(business_id) ON DELETE CASCADE,
+    business_name VARCHAR(255) NOT NULL,
+    website VARCHAR(255) NOT NULL,
+    priority VARCHAR(20) NOT NULL DEFAULT 'Normal'
+        CHECK (priority IN ('Low', 'Normal', 'High', 'Urgent')),
+    queue_status VARCHAR(20) NOT NULL DEFAULT 'Waiting'
+        CHECK (queue_status IN ('Waiting', 'Running', 'Completed', 'Failed', 'Cancelled')),
+    requested_by VARCHAR(100) DEFAULT 'System',
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_queue_status
+    ON verification_queue(queue_status);
+CREATE INDEX IF NOT EXISTS idx_verification_queue_priority
+    ON verification_queue(priority);
+CREATE INDEX IF NOT EXISTS idx_verification_queue_created_at
+    ON verification_queue(created_at);
+
+-- ==========================================
+-- Notifications
+-- Stores dashboard alerts and workflow messages
+-- ==========================================
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id SERIAL PRIMARY KEY,
+    business_id INT REFERENCES businesses(business_id) ON DELETE SET NULL,
+    notification_type VARCHAR(50) NOT NULL DEFAULT 'INFO',
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    severity VARCHAR(20) NOT NULL DEFAULT 'Info'
+        CHECK (severity IN ('Info', 'Success', 'Warning', 'Error')),
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    read_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read
+    ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at
+    ON notifications(created_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_business_id
+    ON notifications(business_id);
