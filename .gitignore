@@ -1,5 +1,6 @@
 node_modules/
+.env
 dist/
 *.log
 package-lock.json.backup
-.env
+.DS_Store
