@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Dashboard from "./pages/Dashboard";
 import Businesses from "./pages/Businesses";
@@ -7,7 +7,7 @@ import Verification from "./pages/Verification";
 import Reports from "./pages/Reports";
 import "./App.css";
 
-export function App() {
+export default function App() {
   return (
     <BrowserRouter>
       <div className="app-wrapper">
