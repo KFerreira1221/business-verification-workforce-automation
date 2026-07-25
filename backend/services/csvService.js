@@ -2,15 +2,6 @@ const fs = require("fs");
 const path = require("path");
 const csv = require("csv-parser");
 
-function loadBusinesses() {
-  return new Promise((resolve, reject) => {
-    const results = [];
-    const csvPath = path.join(__dirname, "../../database/BusinessDatasets.csv");
-
-    fs.createReadStream(csvPath)const fs = require("fs");
-const path = require("path");
-const csv = require("csv-parser");
-
 const CSV_PATH = path.join(
   __dirname,
   "../data/input/BusinessDatasets.csv"
@@ -61,7 +52,7 @@ function normalizeRow(row) {
       row.business_status ||
       row.Status ||
       "Pending"
-    ).trim()
+    ).trim(),
   };
 }
 
@@ -80,6 +71,7 @@ function loadBusinesses() {
 
     fs.createReadStream(CSV_PATH)
       .pipe(csv())
+
       .on("data", (row) => {
         const normalized = normalizeRow(row);
 
@@ -87,14 +79,25 @@ function loadBusinesses() {
           results.push(normalized);
         }
       })
+
       .on("end", () => {
         console.log(
-          `[CSV] Loaded ${results.length} businesses from ${CSV_PATH}`
+          `[CSV] Loaded ${results.length} businesses`
+        );
+
+        console.log(
+          `[CSV] Source: ${CSV_PATH}`
         );
 
         resolve(results);
       })
+
       .on("error", (error) => {
+        console.error(
+          "[CSV] Failed to read business dataset:",
+          error
+        );
+
         reject(error);
       });
   });
@@ -103,13 +106,5 @@ function loadBusinesses() {
 module.exports = {
   loadBusinesses,
   normalizeRow,
-  CSV_PATH
+  CSV_PATH,
 };
-      .pipe(csv())
-      .on("data", (row) => results.push(row))
-      .on("end", () => resolve(results))
-      .on("error", reject);
-  });
-}
-
-module.exports = { loadBusinesses };
