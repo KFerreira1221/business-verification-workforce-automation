@@ -1,12 +1,18 @@
+// =====================================================
+// ELEMENTS
+// =====================================================
+
 const runBtn = document.getElementById("runBtn");
 const activityLog = document.getElementById("activityLog");
 const loadResults = document.getElementById("loadResults");
+const listFilesBtn = document.getElementById("listFilesBtn");
+const loadAllBtn = document.getElementById("loadAllBtn");
 
 let liveInterval = null;
 
 
 // =====================================================
-// HELPERS
+// LOGGING
 // =====================================================
 
 function log(message) {
@@ -19,9 +25,14 @@ function log(message) {
 
   const line = document.createElement("p");
   line.textContent = `[${time}] ${message}`;
+
   activityLog.prepend(line);
 }
 
+
+// =====================================================
+// RESULT DISPLAY
+// =====================================================
 
 function showResult(title, data) {
   if (!loadResults) return;
@@ -32,6 +43,10 @@ function showResult(title, data) {
   `;
 }
 
+
+// =====================================================
+// SAFE JSON RESPONSE HANDLER
+// =====================================================
 
 async function readJsonResponse(response) {
   let data;
@@ -64,6 +79,171 @@ async function readJsonResponse(response) {
 }
 
 
+// =====================================================
+// GENERIC POST REQUEST
+// =====================================================
+
+async function postLoad(url, title) {
+  try {
+    log(`Starting: ${title}...`);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+
+    const data = await readJsonResponse(response);
+
+    showResult(title, data);
+
+    log(`${title} completed successfully.`);
+
+    return data;
+
+  } catch (error) {
+    log(`${title} failed: ${error.message}`);
+
+    showResult(`${title} Error`, {
+      success: false,
+      error: error.message
+    });
+
+    throw error;
+  }
+}
+
+
+// =====================================================
+// SHOW INPUT FILES
+// =====================================================
+
+listFilesBtn?.addEventListener("click", async () => {
+  listFilesBtn.disabled = true;
+  listFilesBtn.textContent = "Checking Files...";
+
+  try {
+    log("Checking files available to the backend...");
+
+    const response = await fetch("/api/load/files");
+
+    const data = await readJsonResponse(response);
+
+    const files = Array.isArray(data.files)
+      ? data.files
+      : [];
+
+    showResult(
+      "Backend Input Files",
+      {
+        count: files.length,
+        files
+      }
+    );
+
+    log(
+      `${files.length} input file(s) found on the backend.`
+    );
+
+  } catch (error) {
+    log(
+      `Unable to list input files: ${error.message}`
+    );
+
+    showResult(
+      "Input File Error",
+      {
+        error: error.message
+      }
+    );
+
+  } finally {
+    listFilesBtn.disabled = false;
+    listFilesBtn.textContent = "Show Input Files";
+  }
+});
+
+
+// =====================================================
+// LOAD ALL PROJECT DATA
+// =====================================================
+
+loadAllBtn?.addEventListener("click", async () => {
+  loadAllBtn.disabled = true;
+  loadAllBtn.textContent = "Loading Project Data...";
+
+  try {
+    log("Starting full project data import...");
+    log("Step 1: Loading business datasets.");
+    log("Step 2: Loading business documents.");
+    log("Step 3: Loading employee documents.");
+
+    const data = await postLoad(
+      "/api/load/all",
+      "Load All Project Data"
+    );
+
+    const result =
+      data?.result ||
+      data?.results ||
+      {};
+
+    const businesses =
+      result?.businesses ||
+      result?.businessDataset ||
+      null;
+
+    const businessDocuments =
+      result?.businessDocuments ||
+      null;
+
+    const employeeDocuments =
+      result?.employeeDocuments ||
+      null;
+
+    if (businesses) {
+      log(
+        `Business dataset processed: ${
+          businesses.count ?? "complete"
+        } record(s).`
+      );
+    }
+
+    if (businessDocuments) {
+      log(
+        `Business documents processed: ${
+          businessDocuments.count ?? "complete"
+        }.`
+      );
+    }
+
+    if (employeeDocuments) {
+      log(
+        `Employee documents processed: ${
+          employeeDocuments.count ?? "complete"
+        }.`
+      );
+    }
+
+    log("All project data finished loading.");
+
+  } catch (error) {
+    log(
+      `Full project import stopped: ${error.message}`
+    );
+
+  } finally {
+    loadAllBtn.disabled = false;
+    loadAllBtn.textContent = "Load All Project Data";
+  }
+});
+
+
+// =====================================================
+// LIVE CRAWLER VIEWER
+// =====================================================
+
 function stopLiveViewer() {
   if (liveInterval) {
     clearInterval(liveInterval);
@@ -73,14 +253,17 @@ function stopLiveViewer() {
 
 
 function startLiveViewer() {
-  const crawlerScreen = document.getElementById("crawlerScreen");
+  const crawlerScreen =
+    document.getElementById("crawlerScreen");
 
   if (!crawlerScreen) return;
 
   crawlerScreen.innerHTML = `
-    <div>
+    <div class="crawler-message">
       <h3>Preparing crawler...</h3>
-      <p>Waiting for Chromium to capture the researched page.</p>
+      <p>
+        Chromium is preparing to research the selected business.
+      </p>
     </div>
   `;
 
@@ -90,29 +273,42 @@ function startLiveViewer() {
         id="liveCrawlerImage"
         src="/screenshots/current.png?t=${Date.now()}"
         alt="Live crawler screenshot"
-        style="width:100%; height:100%; object-fit:cover;"
+        style="
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        "
       />
     `;
 
     liveInterval = setInterval(() => {
-      const image = document.getElementById("liveCrawlerImage");
+      const image =
+        document.getElementById(
+          "liveCrawlerImage"
+        );
 
       if (image) {
         image.src =
           `/screenshots/current.png?t=${Date.now()}`;
       }
     }, 1000);
+
   }, 1500);
 }
 
 
+// =====================================================
+// CRAWLER ERROR
+// =====================================================
+
 function showCrawlerError(message) {
-  const crawlerScreen = document.getElementById("crawlerScreen");
+  const crawlerScreen =
+    document.getElementById("crawlerScreen");
 
   if (!crawlerScreen) return;
 
   crawlerScreen.innerHTML = `
-    <div>
+    <div class="crawler-message crawler-error">
       <h3>Verification could not be completed</h3>
       <p>${message}</p>
     </div>
@@ -121,198 +317,38 @@ function showCrawlerError(message) {
 
 
 // =====================================================
-// GENERIC FILE LOADER
-// =====================================================
-
-async function postLoad(url, title) {
-  try {
-    log(`Loading ${title}...`);
-
-    const response = await fetch(url, {
-      method: "POST"
-    });
-
-    const data = await readJsonResponse(response);
-
-    showResult(title, data);
-
-    log(`${title} loaded successfully.`);
-  } catch (error) {
-    log(`Error loading ${title}: ${error.message}`);
-    showResult(`${title} Error`, {
-      error: error.message
-    });
-  }
-}
-
-
-// =====================================================
-// INPUT FILES
-// =====================================================
-
-document
-  .getElementById("listFilesBtn")
-  ?.addEventListener("click", async () => {
-    try {
-      log("Checking backend input files...");
-
-      const response = await fetch("/api/load/files");
-
-      const data = await readJsonResponse(response);
-
-      showResult("Input Files", data);
-
-      log("Input file list loaded.");
-    } catch (error) {
-      log(`Error listing files: ${error.message}`);
-    }
-  });
-
-
-// =====================================================
-// BUSINESS DATASET
-// =====================================================
-
-document
-  .getElementById("loadBusinessBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/business-dataset",
-      "Business Dataset"
-    );
-  });
-
-
-// =====================================================
-// BUSINESS DOCUMENTS
-// =====================================================
-
-document
-  .getElementById("loadBusinessLicenseBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/BusinessLicense.docx",
-      "Business License"
-    );
-  });
-
-
-document
-  .getElementById("loadVendorBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/VendorRegistrationForm.docx",
-      "Vendor Registration"
-    );
-  });
-
-
-document
-  .getElementById("loadW9Btn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/W9FormSample.docx",
-      "W9 Form"
-    );
-  });
-
-
-document
-  .getElementById("loadInsuranceBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/InsuranceCertificate.docx",
-      "Insurance Certificate"
-    );
-  });
-
-
-document
-  .getElementById("loadInvoiceBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/InvoiceSample.docx",
-      "Invoice"
-    );
-  });
-
-
-// =====================================================
-// EMPLOYEE DOCUMENTS
-// =====================================================
-
-document
-  .getElementById("loadOnboardingBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/EmployeeOnboardingForm.docx",
-      "Employee Onboarding"
-    );
-  });
-
-
-document
-  .getElementById("loadEmploymentBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/EmploymentVerificationLetter.docx",
-      "Employment Verification"
-    );
-  });
-
-
-document
-  .getElementById("loadBackgroundBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/BackgroundCheckReport.docx",
-      "Background Check"
-    );
-  });
-
-
-document
-  .getElementById("loadTrainingBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/EmployeeTrainingRecord.docx",
-      "Employee Training"
-    );
-  });
-
-
-document
-  .getElementById("loadComplianceBtn")
-  ?.addEventListener("click", () => {
-    postLoad(
-      "/api/load/file/ComplianceCertificate.docx",
-      "Compliance Certificate"
-    );
-  });
-
-
-// =====================================================
-// VERIFICATION RESULT UI
+// DISPLAY VERIFICATION RESULT
 // =====================================================
 
 function displayVerificationResult(result) {
   const confidence = Math.max(
     0,
-    Math.min(100, Number(result?.confidence) || 0)
+    Math.min(
+      100,
+      Number(result?.confidence) || 0
+    )
   );
+
 
   const businessName =
     result?.businessName ||
     result?.business_name ||
     "Unknown Business";
 
+
   const status =
     result?.status ||
     "needs_review";
 
 
+  // ---------------------------------------------------
+  // TITLE
+  // ---------------------------------------------------
+
   const scanTitle =
-    document.getElementById("scanTitle");
+    document.getElementById(
+      "scanTitle"
+    );
 
   if (scanTitle) {
     scanTitle.textContent =
@@ -320,8 +356,14 @@ function displayVerificationResult(result) {
   }
 
 
+  // ---------------------------------------------------
+  // CONFIDENCE
+  // ---------------------------------------------------
+
   const confidenceScore =
-    document.getElementById("confidenceScore");
+    document.getElementById(
+      "confidenceScore"
+    );
 
   if (confidenceScore) {
     confidenceScore.textContent =
@@ -330,7 +372,9 @@ function displayVerificationResult(result) {
 
 
   const scoreRing =
-    document.querySelector(".score-ring");
+    document.querySelector(
+      ".score-ring"
+    );
 
   if (scoreRing) {
     scoreRing.style.background =
@@ -341,8 +385,14 @@ function displayVerificationResult(result) {
   }
 
 
+  // ---------------------------------------------------
+  // WEBSITE EVIDENCE
+  // ---------------------------------------------------
+
   const websiteEvidence =
-    document.getElementById("websiteEvidence");
+    document.getElementById(
+      "websiteEvidence"
+    );
 
   if (websiteEvidence) {
     websiteEvidence.textContent =
@@ -352,13 +402,20 @@ function displayVerificationResult(result) {
   }
 
 
+  // ---------------------------------------------------
+  // PHONE EVIDENCE
+  // ---------------------------------------------------
+
   const phones =
     Array.isArray(result?.phones)
       ? result.phones
       : [];
 
+
   const phoneEvidence =
-    document.getElementById("phoneEvidence");
+    document.getElementById(
+      "phoneEvidence"
+    );
 
   if (phoneEvidence) {
     phoneEvidence.textContent =
@@ -370,13 +427,20 @@ function displayVerificationResult(result) {
   }
 
 
+  // ---------------------------------------------------
+  // ADDRESS EVIDENCE
+  // ---------------------------------------------------
+
   const addresses =
     Array.isArray(result?.addresses)
       ? result.addresses
       : [];
 
+
   const addressEvidence =
-    document.getElementById("addressEvidence");
+    document.getElementById(
+      "addressEvidence"
+    );
 
   if (addressEvidence) {
     addressEvidence.textContent =
@@ -388,10 +452,25 @@ function displayVerificationResult(result) {
   }
 
 
+  // ---------------------------------------------------
+  // EMAIL EVIDENCE
+  // ---------------------------------------------------
+
+  const emails =
+    Array.isArray(result?.emails)
+      ? result.emails
+      : [];
+
+
+  // ---------------------------------------------------
+  // FULL EVIDENCE
+  // ---------------------------------------------------
+
   showResult(
     "Verification Evidence",
     {
       businessName,
+
       originalWebsite:
         result?.website || null,
 
@@ -410,10 +489,7 @@ function displayVerificationResult(result) {
 
       phones,
 
-      emails:
-        Array.isArray(result?.emails)
-          ? result.emails
-          : [],
+      emails,
 
       addresses,
 
@@ -421,7 +497,9 @@ function displayVerificationResult(result) {
         result?.pagesCrawled || 0,
 
       pagesVisited:
-        Array.isArray(result?.pagesVisited)
+        Array.isArray(
+          result?.pagesVisited
+        )
           ? result.pagesVisited
           : [],
 
@@ -429,7 +507,9 @@ function displayVerificationResult(result) {
         result?.crawledAt || null,
 
       attempts:
-        Array.isArray(result?.attempts)
+        Array.isArray(
+          result?.attempts
+        )
           ? result.attempts
           : []
     }
@@ -445,7 +525,9 @@ runBtn?.addEventListener("click", async () => {
   stopLiveViewer();
 
   log("Starting business verification...");
-  log("Requesting the first business from the dataset...");
+  log(
+    "Requesting the first business from the dataset..."
+  );
 
   runBtn.disabled = true;
   runBtn.textContent = "Scanning...";
@@ -453,27 +535,27 @@ runBtn?.addEventListener("click", async () => {
   startLiveViewer();
 
   try {
-    /*
-      IMPORTANT:
 
-      /run-csv-first chooses the business on the BACKEND.
-
-      Therefore we do NOT send Microsoft or another
-      hard-coded company from this frontend.
-    */
+    // -------------------------------------------------
+    // BACKEND CHOOSES FIRST BUSINESS FROM CSV
+    // -------------------------------------------------
 
     const response = await fetch(
       "/api/verification/run-csv-first",
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type":
+            "application/json"
         }
       }
     );
 
 
-    const data = await readJsonResponse(response);
+    const data =
+      await readJsonResponse(
+        response
+      );
 
 
     if (!data.result) {
@@ -483,56 +565,88 @@ runBtn?.addEventListener("click", async () => {
     }
 
 
-    const result = data.result;
+    const result =
+      data.result;
 
 
     const businessName =
       result.businessName ||
       result.business_name ||
-      data.scannedBusiness?.business_name ||
+      data.scannedBusiness
+        ?.business_name ||
       "Unknown Business";
 
 
-    log(`Business selected: ${businessName}`);
+    // -------------------------------------------------
+    // CONSOLE ACTIVITY
+    // -------------------------------------------------
+
+    log(
+      `Business selected: ${businessName}`
+    );
 
 
     if (result.website) {
-      log(`Website investigated: ${result.website}`);
+      log(
+        `Website investigated: ${result.website}`
+      );
     }
 
 
     if (result.finalUrl) {
-      log(`Final page reached: ${result.finalUrl}`);
+      log(
+        `Final page reached: ${result.finalUrl}`
+      );
     }
 
 
-    if (Array.isArray(result.pagesVisited)) {
+    if (
+      Array.isArray(
+        result.pagesVisited
+      )
+    ) {
       log(
         `Crawler inspected ${result.pagesVisited.length} page(s).`
       );
     }
 
 
-    if (Array.isArray(result.phones)) {
+    if (
+      Array.isArray(
+        result.phones
+      )
+    ) {
       log(
         `Phone candidates extracted: ${result.phones.length}`
       );
     }
 
 
-    if (Array.isArray(result.emails)) {
+    if (
+      Array.isArray(
+        result.emails
+      )
+    ) {
       log(
         `Email candidates extracted: ${result.emails.length}`
       );
     }
 
 
-    if (Array.isArray(result.addresses)) {
+    if (
+      Array.isArray(
+        result.addresses
+      )
+    ) {
       log(
         `Address candidates extracted: ${result.addresses.length}`
       );
     }
 
+
+    // -------------------------------------------------
+    // DISPLAY RESULT
+    // -------------------------------------------------
 
     displayVerificationResult({
       ...result,
@@ -550,9 +664,13 @@ runBtn?.addEventListener("click", async () => {
 
     stopLiveViewer();
 
-    log(`Verification failed: ${error.message}`);
+    log(
+      `Verification failed: ${error.message}`
+    );
 
-    showCrawlerError(error.message);
+    showCrawlerError(
+      error.message
+    );
 
     showResult(
       "Verification Error",
@@ -566,7 +684,7 @@ runBtn?.addEventListener("click", async () => {
     stopLiveViewer();
 
     runBtn.disabled = false;
-    runBtn.textContent = "Run Test Scan";
-
+    runBtn.textContent =
+      "Run Test Scan";
   }
 });
