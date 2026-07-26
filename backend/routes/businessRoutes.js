@@ -1,6 +1,12 @@
 const express = require("express");
 const router = express.Router();
+
 const pool = require("../services/db");
+
+
+// =====================================================
+// HELPERS
+// =====================================================
 
 function normalizeWebsite(website) {
   if (!website) return null;
@@ -14,11 +20,9 @@ function normalizeWebsite(website) {
     : `https://${cleaned}`;
 }
 
+
 function normalizeBusinessStatus(status) {
   const allowedStatuses = [
-    "Unverified",
-    "Verified",
-    "Needs Review",
     "Active",
     "Pending",
     "Inactive",
@@ -27,17 +31,20 @@ function normalizeBusinessStatus(status) {
   ];
 
   if (!status) {
-    return "Unverified";
+    return "Pending";
   }
+
+  const normalized = String(status).trim();
 
   const match = allowedStatuses.find(
     (allowedStatus) =>
       allowedStatus.toLowerCase() ===
-      String(status).trim().toLowerCase()
+      normalized.toLowerCase()
   );
 
-  return match || "Unverified";
+  return match || "Pending";
 }
+
 
 function getBusinessPayload(body = {}) {
   return {
@@ -78,11 +85,17 @@ function getBusinessPayload(body = {}) {
   };
 }
 
+
 function isValidBusinessId(id) {
   return /^\d+$/.test(String(id));
 }
 
-function sendDatabaseError(res, error, message) {
+
+function sendDatabaseError(
+  res,
+  error,
+  message
+) {
   console.error(message, {
     message: error.message,
     code: error.code,
@@ -95,27 +108,38 @@ function sendDatabaseError(res, error, message) {
   return res.status(500).json({
     success: false,
     error: message,
-    database_code: error.code || null,
-    database_detail: error.detail || null
+    database_code:
+      error.code || null,
+    database_detail:
+      error.detail || null
   });
 }
 
-// GET all businesses
+
+// =====================================================
+// GET ALL BUSINESSES
+// GET /api/businesses
+// =====================================================
+
 router.get("/", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT
-          business_id,
-          business_name,
-          website,
-          phone_number,
-          email,
-          industry,
-          business_status,
-          created_at,
-          updated_at
-       FROM businesses
-       ORDER BY business_id ASC`
+      `
+      SELECT
+        business_id,
+        business_name,
+        website,
+        phone_number,
+        email,
+        industry,
+        business_status,
+        created_at,
+        updated_at
+
+      FROM businesses
+
+      ORDER BY business_id ASC
+      `
     );
 
     return res.json({
@@ -123,6 +147,7 @@ router.get("/", async (req, res) => {
       count: result.rows.length,
       businesses: result.rows
     });
+
   } catch (error) {
     return sendDatabaseError(
       res,
@@ -132,20 +157,29 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET one business by ID
+
+// =====================================================
+// GET BUSINESS WITH LATEST VERIFICATION
+// GET /api/businesses/:id
+// =====================================================
+
 router.get("/:id", async (req, res) => {
-  const businessId = req.params.id;
+  const businessId =
+    req.params.id;
 
   if (!isValidBusinessId(businessId)) {
     return res.status(400).json({
       success: false,
-      error: "Business ID must be a number"
+      error:
+        "Business ID must be a number"
     });
   }
 
   try {
-    const result = await pool.query(
-      `SELECT
+    const businessResult =
+      await pool.query(
+        `
+        SELECT
           business_id,
           business_name,
           website,
@@ -155,22 +189,63 @@ router.get("/:id", async (req, res) => {
           business_status,
           created_at,
           updated_at
-       FROM businesses
-       WHERE business_id = $1`,
-      [businessId]
-    );
 
-    if (result.rows.length === 0) {
+        FROM businesses
+
+        WHERE business_id = $1
+        `,
+        [businessId]
+      );
+
+
+    if (
+      businessResult.rows.length === 0
+    ) {
       return res.status(404).json({
         success: false,
-        error: "Business not found"
+        error:
+          "Business not found"
       });
     }
 
+
+    const verificationResult =
+      await pool.query(
+        `
+        SELECT
+          verification_id,
+          website_verified,
+          email_verified,
+          phone_verified,
+          confidence_score,
+          verification_status,
+          discrepancies,
+          notes,
+          verified_at
+
+        FROM verification_results
+
+        WHERE business_id = $1
+
+        ORDER BY verified_at DESC
+
+        LIMIT 1
+        `,
+        [businessId]
+      );
+
+
     return res.json({
       success: true,
-      business: result.rows[0]
+
+      business:
+        businessResult.rows[0],
+
+      latestVerification:
+        verificationResult.rows[0] ||
+        null
     });
+
   } catch (error) {
     return sendDatabaseError(
       res,
@@ -180,68 +255,115 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// CREATE business
+
+// =====================================================
+// CREATE BUSINESS
+// POST /api/businesses
+// =====================================================
+
 router.post("/", async (req, res) => {
-  const business = getBusinessPayload(req.body);
+  const business =
+    getBusinessPayload(
+      req.body
+    );
+
 
   if (!business.business_name) {
     return res.status(400).json({
       success: false,
-      error: "business_name is required"
+      error:
+        "business_name is required"
     });
   }
 
+
   try {
-    const existing = await pool.query(
-      `SELECT business_id
-       FROM businesses
-       WHERE LOWER(TRIM(business_name)) =
-             LOWER(TRIM($1))
+    const existing =
+      await pool.query(
+        `
+        SELECT
+          business_id
+
+        FROM businesses
+
+        WHERE
+          LOWER(TRIM(business_name)) =
+          LOWER(TRIM($1))
+
           OR (
             $2::text IS NOT NULL
             AND website = $2
           )
-       LIMIT 1`,
-      [
-        business.business_name,
-        business.website
-      ]
-    );
 
-    if (existing.rows.length > 0) {
-      return res.status(409).json({
-        success: false,
-        error: "Business already exists",
-        business_id: existing.rows[0].business_id
-      });
+        LIMIT 1
+        `,
+        [
+          business.business_name,
+          business.website
+        ]
+      );
+
+
+    if (
+      existing.rows.length > 0
+    ) {
+      return res
+        .status(409)
+        .json({
+          success: false,
+          error:
+            "Business already exists",
+          business_id:
+            existing.rows[0]
+              .business_id
+        });
     }
 
-    const result = await pool.query(
-      `INSERT INTO businesses (
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO businesses (
           business_name,
           website,
           phone_number,
           email,
           industry,
           business_status
-       )
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        business.business_name,
-        business.website,
-        business.phone_number,
-        business.email,
-        business.industry,
-        business.business_status
-      ]
-    );
+        )
 
-    return res.status(201).json({
-      success: true,
-      message: "Business created",
-      business: result.rows[0]
-    });
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6
+        )
+
+        RETURNING *
+        `,
+        [
+          business.business_name,
+          business.website,
+          business.phone_number,
+          business.email,
+          business.industry,
+          business.business_status
+        ]
+      );
+
+
+    return res
+      .status(201)
+      .json({
+        success: true,
+        message:
+          "Business created",
+        business:
+          result.rows[0]
+      });
+
   } catch (error) {
     return sendDatabaseError(
       res,
@@ -251,62 +373,92 @@ router.post("/", async (req, res) => {
   }
 });
 
-// UPDATE business
+
+// =====================================================
+// UPDATE BUSINESS
+// PUT /api/businesses/:id
+// =====================================================
+
 router.put("/:id", async (req, res) => {
-  const businessId = req.params.id;
+  const businessId =
+    req.params.id;
+
 
   if (!isValidBusinessId(businessId)) {
     return res.status(400).json({
       success: false,
-      error: "Business ID must be a number"
+      error:
+        "Business ID must be a number"
     });
   }
 
-  const business = getBusinessPayload(req.body);
+
+  const business =
+    getBusinessPayload(
+      req.body
+    );
+
 
   if (!business.business_name) {
     return res.status(400).json({
       success: false,
-      error: "business_name is required"
+      error:
+        "business_name is required"
     });
   }
 
-  try {
-    const result = await pool.query(
-      `UPDATE businesses
-       SET
-         business_name = $1,
-         website = $2,
-         phone_number = $3,
-         email = $4,
-         industry = $5,
-         business_status = $6,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE business_id = $7
-       RETURNING *`,
-      [
-        business.business_name,
-        business.website,
-        business.phone_number,
-        business.email,
-        business.industry,
-        business.business_status,
-        businessId
-      ]
-    );
 
-    if (result.rows.length === 0) {
+  try {
+    const result =
+      await pool.query(
+        `
+        UPDATE businesses
+
+        SET
+          business_name = $1,
+          website = $2,
+          phone_number = $3,
+          email = $4,
+          industry = $5,
+          business_status = $6,
+          updated_at =
+            CURRENT_TIMESTAMP
+
+        WHERE business_id = $7
+
+        RETURNING *
+        `,
+        [
+          business.business_name,
+          business.website,
+          business.phone_number,
+          business.email,
+          business.industry,
+          business.business_status,
+          businessId
+        ]
+      );
+
+
+    if (
+      result.rows.length === 0
+    ) {
       return res.status(404).json({
         success: false,
-        error: "Business not found"
+        error:
+          "Business not found"
       });
     }
 
+
     return res.json({
       success: true,
-      message: "Business updated",
-      business: result.rows[0]
+      message:
+        "Business updated",
+      business:
+        result.rows[0]
     });
+
   } catch (error) {
     return sendDatabaseError(
       res,
@@ -316,99 +468,131 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// PARTIAL UPDATE business
+
+// =====================================================
+// PARTIAL UPDATE
+// PATCH /api/businesses/:id
+// =====================================================
+
 router.patch("/:id", async (req, res) => {
-  const businessId = req.params.id;
+  const businessId =
+    req.params.id;
+
 
   if (!isValidBusinessId(businessId)) {
     return res.status(400).json({
       success: false,
-      error: "Business ID must be a number"
+      error:
+        "Business ID must be a number"
     });
   }
 
-  try {
-    const existingResult = await pool.query(
-      `SELECT *
-       FROM businesses
-       WHERE business_id = $1`,
-      [businessId]
-    );
 
-    if (existingResult.rows.length === 0) {
+  try {
+    const existingResult =
+      await pool.query(
+        `
+        SELECT *
+        FROM businesses
+        WHERE business_id = $1
+        `,
+        [businessId]
+      );
+
+
+    if (
+      existingResult.rows.length === 0
+    ) {
       return res.status(404).json({
         success: false,
-        error: "Business not found"
+        error:
+          "Business not found"
       });
     }
 
-    const existingBusiness = existingResult.rows[0];
 
-    const mergedBusiness = getBusinessPayload({
-      business_name:
-        req.body.business_name ??
-        req.body.businessName ??
-        req.body.name ??
-        existingBusiness.business_name,
+    const existingBusiness =
+      existingResult.rows[0];
 
-      website:
-        req.body.website ??
-        req.body.business_website ??
-        req.body.businessWebsite ??
-        existingBusiness.website,
 
-      phone_number:
-        req.body.phone_number ??
-        req.body.phoneNumber ??
-        req.body.phone ??
-        existingBusiness.phone_number,
+    const mergedBusiness =
+      getBusinessPayload({
+        business_name:
+          req.body.business_name ??
+          req.body.businessName ??
+          req.body.name ??
+          existingBusiness.business_name,
 
-      email:
-        req.body.email ??
-        req.body.business_email ??
-        req.body.businessEmail ??
-        existingBusiness.email,
+        website:
+          req.body.website ??
+          req.body.business_website ??
+          req.body.businessWebsite ??
+          existingBusiness.website,
 
-      industry:
-        req.body.industry ??
-        req.body.business_industry ??
-        existingBusiness.industry,
+        phone_number:
+          req.body.phone_number ??
+          req.body.phoneNumber ??
+          req.body.phone ??
+          existingBusiness.phone_number,
 
-      business_status:
-        req.body.business_status ??
-        req.body.businessStatus ??
-        req.body.status ??
-        existingBusiness.business_status
-    });
+        email:
+          req.body.email ??
+          req.body.business_email ??
+          req.body.businessEmail ??
+          existingBusiness.email,
 
-    const result = await pool.query(
-      `UPDATE businesses
-       SET
-         business_name = $1,
-         website = $2,
-         phone_number = $3,
-         email = $4,
-         industry = $5,
-         business_status = $6,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE business_id = $7
-       RETURNING *`,
-      [
-        mergedBusiness.business_name,
-        mergedBusiness.website,
-        mergedBusiness.phone_number,
-        mergedBusiness.email,
-        mergedBusiness.industry,
-        mergedBusiness.business_status,
-        businessId
-      ]
-    );
+        industry:
+          req.body.industry ??
+          req.body.business_industry ??
+          existingBusiness.industry,
+
+        business_status:
+          req.body.business_status ??
+          req.body.businessStatus ??
+          req.body.status ??
+          existingBusiness.business_status
+      });
+
+
+    const result =
+      await pool.query(
+        `
+        UPDATE businesses
+
+        SET
+          business_name = $1,
+          website = $2,
+          phone_number = $3,
+          email = $4,
+          industry = $5,
+          business_status = $6,
+          updated_at =
+            CURRENT_TIMESTAMP
+
+        WHERE business_id = $7
+
+        RETURNING *
+        `,
+        [
+          mergedBusiness.business_name,
+          mergedBusiness.website,
+          mergedBusiness.phone_number,
+          mergedBusiness.email,
+          mergedBusiness.industry,
+          mergedBusiness.business_status,
+          businessId
+        ]
+      );
+
 
     return res.json({
       success: true,
-      message: "Business updated",
-      business: result.rows[0]
+      message:
+        "Business updated",
+      business:
+        result.rows[0]
     });
+
   } catch (error) {
     return sendDatabaseError(
       res,
@@ -418,87 +602,116 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// DELETE business
+
+// =====================================================
+// DELETE BUSINESS
+// DELETE /api/businesses/:id
+//
+// Foreign-key CASCADE handles:
+// verification_results
+// documents
+// workflow_tasks
+//
+// We manually remove activity logs only because
+// activity_logs does not reference business_id
+// in the new schema.
+// =====================================================
+
 router.delete("/:id", async (req, res) => {
-  const businessId = req.params.id;
+  const businessId =
+    req.params.id;
+
 
   if (!isValidBusinessId(businessId)) {
     return res.status(400).json({
       success: false,
-      error: "Business ID must be a number"
+      error:
+        "Business ID must be a number"
     });
   }
 
-  const client = await pool.connect();
+
+  const client =
+    await pool.connect();
+
 
   try {
-    await client.query("BEGIN");
-
-    const existing = await client.query(
-      `SELECT *
-       FROM businesses
-       WHERE business_id = $1`,
-      [businessId]
+    await client.query(
+      "BEGIN"
     );
 
-    if (existing.rows.length === 0) {
-      await client.query("ROLLBACK");
+
+    const existing =
+      await client.query(
+        `
+        SELECT *
+
+        FROM businesses
+
+        WHERE business_id = $1
+        `,
+        [businessId]
+      );
+
+
+    if (
+      existing.rows.length === 0
+    ) {
+      await client.query(
+        "ROLLBACK"
+      );
 
       return res.status(404).json({
         success: false,
-        error: "Business not found"
+        error:
+          "Business not found"
       });
     }
 
-    await client.query(
-      `DELETE FROM notifications
-       WHERE business_id = $1`,
-      [businessId]
-    );
+
+    const deleted =
+      await client.query(
+        `
+        DELETE FROM businesses
+
+        WHERE business_id = $1
+
+        RETURNING *
+        `,
+        [businessId]
+      );
+
 
     await client.query(
-      `DELETE FROM activity_logs
-       WHERE related_business_id = $1`,
-      [businessId]
+      "COMMIT"
     );
 
-    await client.query(
-      `DELETE FROM workflow_tasks
-       WHERE business_id = $1`,
-      [businessId]
-    );
-
-    await client.query(
-      `DELETE FROM verification_records
-       WHERE business_id = $1`,
-      [businessId]
-    );
-
-    const deleted = await client.query(
-      `DELETE FROM businesses
-       WHERE business_id = $1
-       RETURNING *`,
-      [businessId]
-    );
-
-    await client.query("COMMIT");
 
     return res.json({
       success: true,
-      message: "Business deleted",
-      deleted_business: deleted.rows[0]
+      message:
+        "Business deleted",
+      deleted_business:
+        deleted.rows[0]
     });
+
   } catch (error) {
-    await client.query("ROLLBACK");
+
+    await client.query(
+      "ROLLBACK"
+    );
+
 
     return sendDatabaseError(
       res,
       error,
       "Failed to delete business"
     );
+
   } finally {
     client.release();
   }
 });
+
 
 module.exports = router;
