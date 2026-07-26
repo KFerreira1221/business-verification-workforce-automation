@@ -329,12 +329,10 @@ function displayVerificationResult(result) {
     )
   );
 
-
   const businessName =
     result?.businessName ||
     result?.business_name ||
     "Unknown Business";
-
 
   const status =
     result?.status ||
@@ -369,7 +367,6 @@ function displayVerificationResult(result) {
     confidenceScore.textContent =
       `${confidence}%`;
   }
-
 
   const scoreRing =
     document.querySelector(
@@ -411,7 +408,6 @@ function displayVerificationResult(result) {
       ? result.phones
       : [];
 
-
   const phoneEvidence =
     document.getElementById(
       "phoneEvidence"
@@ -435,7 +431,6 @@ function displayVerificationResult(result) {
     Array.isArray(result?.addresses)
       ? result.addresses
       : [];
-
 
   const addressEvidence =
     document.getElementById(
@@ -472,7 +467,9 @@ function displayVerificationResult(result) {
       businessName,
 
       originalWebsite:
-        result?.website || null,
+        result?.website ||
+        result?.originalWebsite ||
+        null,
 
       finalUrl:
         result?.finalUrl || null,
@@ -503,6 +500,9 @@ function displayVerificationResult(result) {
           ? result.pagesVisited
           : [],
 
+      screenshotAvailable:
+        result?.screenshotAvailable ?? false,
+
       crawledAt:
         result?.crawledAt || null,
 
@@ -518,7 +518,7 @@ function displayVerificationResult(result) {
 
 
 // =====================================================
-// RUN TEST VERIFICATION
+// RUN LIVE CHROMIUM TEST
 // =====================================================
 
 runBtn?.addEventListener("click", async () => {
@@ -526,7 +526,7 @@ runBtn?.addEventListener("click", async () => {
 
   log("Starting business verification...");
   log(
-    "Requesting the first business from the dataset..."
+    "Starting live Chromium test against a real website..."
   );
 
   runBtn.disabled = true;
@@ -537,11 +537,15 @@ runBtn?.addEventListener("click", async () => {
   try {
 
     // -------------------------------------------------
-    // BACKEND CHOOSES FIRST BUSINESS FROM CSV
+    // IMPORTANT:
+    // This now calls /run-test.
+    //
+    // It should test Microsoft instead of the first
+    // fake Business 1 LLC record from the CSV.
     // -------------------------------------------------
 
     const response = await fetch(
-      "/api/verification/run-csv-first",
+      "/api/verification/run-test",
       {
         method: "POST",
         headers: {
@@ -551,12 +555,10 @@ runBtn?.addEventListener("click", async () => {
       }
     );
 
-
     const data =
       await readJsonResponse(
         response
       );
-
 
     if (!data.result) {
       throw new Error(
@@ -564,16 +566,12 @@ runBtn?.addEventListener("click", async () => {
       );
     }
 
-
     const result =
       data.result;
-
 
     const businessName =
       result.businessName ||
       result.business_name ||
-      data.scannedBusiness
-        ?.business_name ||
       "Unknown Business";
 
 
@@ -585,20 +583,23 @@ runBtn?.addEventListener("click", async () => {
       `Business selected: ${businessName}`
     );
 
-
-    if (result.website) {
+    if (
+      result.website ||
+      result.originalWebsite
+    ) {
       log(
-        `Website investigated: ${result.website}`
+        `Website investigated: ${
+          result.website ||
+          result.originalWebsite
+        }`
       );
     }
-
 
     if (result.finalUrl) {
       log(
         `Final page reached: ${result.finalUrl}`
       );
     }
-
 
     if (
       Array.isArray(
@@ -610,7 +611,6 @@ runBtn?.addEventListener("click", async () => {
       );
     }
 
-
     if (
       Array.isArray(
         result.phones
@@ -620,7 +620,6 @@ runBtn?.addEventListener("click", async () => {
         `Phone candidates extracted: ${result.phones.length}`
       );
     }
-
 
     if (
       Array.isArray(
@@ -632,7 +631,6 @@ runBtn?.addEventListener("click", async () => {
       );
     }
 
-
     if (
       Array.isArray(
         result.addresses
@@ -640,6 +638,16 @@ runBtn?.addEventListener("click", async () => {
     ) {
       log(
         `Address candidates extracted: ${result.addresses.length}`
+      );
+    }
+
+    if (result.screenshotAvailable) {
+      log(
+        "Chromium screenshot captured successfully."
+      );
+    } else {
+      log(
+        "Crawler completed but no screenshot was reported."
       );
     }
 
@@ -652,7 +660,6 @@ runBtn?.addEventListener("click", async () => {
       ...result,
       businessName
     });
-
 
     log(
       `Verification complete: ${businessName} | Confidence: ${
