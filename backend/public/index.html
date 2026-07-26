@@ -74,14 +74,24 @@
       <section class="panel crawler-panel">
 
         <div class="panel-header">
+
           <div>
             <p class="eyebrow">Live Viewer</p>
             <h2>Chromium Crawler Screen</h2>
           </div>
 
-          <button id="runBtn">
-            Run Test Scan
-          </button>
+          <div class="button-row">
+
+            <button id="runBtn">
+              Run Test Scan
+            </button>
+
+            <button id="verifyNextBtn">
+              Verify Next Business
+            </button>
+
+          </div>
+
         </div>
 
 
@@ -98,14 +108,18 @@
           </div>
 
 
-          <div class="browser-body" id="crawlerScreen">
+          <div
+            class="browser-body"
+            id="crawlerScreen"
+          >
 
             <div class="globe">🌐</div>
 
             <h3>Waiting for scan...</h3>
 
             <p>
-              Run a test verification to activate Chromium.
+              Run a crawler test or verify the next
+              loaded business.
             </p>
 
           </div>
@@ -118,7 +132,9 @@
       <!-- VERIFICATION RESULTS -->
       <section class="panel">
 
-        <p class="eyebrow">Verification Result</p>
+        <p class="eyebrow">
+          Verification Result
+        </p>
 
         <h2 id="scanTitle">
           No scan yet
@@ -187,7 +203,10 @@
       </div>
 
 
-      <div id="loadResults" class="evidence">
+      <div
+        id="loadResults"
+        class="evidence"
+      >
         <p>
           No project data loaded yet.
         </p>
