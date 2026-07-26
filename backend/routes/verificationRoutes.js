@@ -2,7 +2,6 @@ const express = require("express");
 const router = express.Router();
 
 const pool = require("../services/db");
-const { loadBusinesses } = require("../services/csvService");
 const { verifyBusiness } = require("../services/crawlerService");
 
 const {
@@ -12,13 +11,57 @@ const {
 
 
 // =====================================================
+// HELPER: VERIFY + SAVE ONE BUSINESS
+// =====================================================
+
+async function verifyAndSaveBusiness(business) {
+  const businessName = business.business_name;
+  const website = normalizeWebsite(business.website);
+
+  if (!businessName) {
+    throw new Error("Business name is missing");
+  }
+
+  if (!website) {
+    throw new Error("Business website is missing");
+  }
+
+  console.log("\n========================================");
+  console.log("[VERIFY]");
+  console.log(`[VERIFY] Business: ${businessName}`);
+  console.log(`[VERIFY] Website: ${website}`);
+  console.log("========================================\n");
+
+  // Run Chromium / crawler
+  const result = await verifyBusiness(
+    businessName,
+    website
+  );
+
+  // Save result to PostgreSQL
+  const saved = await saveVerificationResult({
+    businessName,
+    website,
+    result,
+  });
+
+  return {
+    business_id: business.business_id,
+    businessName,
+    website,
+    result,
+    saved,
+  };
+}
+
+
+// =====================================================
 // LIVE CRAWLER TEST
 //
-// Purpose:
-// Prove Chromium + Crawlee + Screenshot + Extraction work
-// using a real reachable website.
+// This stays here permanently as a diagnostic.
+// It proves Chromium + screenshot + extraction work.
 //
-// This DOES NOT save the test company into PostgreSQL.
+// DOES NOT SAVE MICROSOFT TO DATABASE.
 // =====================================================
 
 router.post("/run-test", async (req, res) => {
@@ -27,7 +70,7 @@ router.post("/run-test", async (req, res) => {
     const website = "https://www.microsoft.com";
 
     console.log("\n========================================");
-    console.log("[CRAWLER TEST] Starting live crawler test");
+    console.log("[CRAWLER TEST] Starting live test");
     console.log(`[CRAWLER TEST] Business: ${businessName}`);
     console.log(`[CRAWLER TEST] Website: ${website}`);
     console.log("========================================\n");
@@ -37,31 +80,7 @@ router.post("/run-test", async (req, res) => {
       website
     );
 
-    console.log(
-      `[CRAWLER TEST] Pages crawled: ${result.pagesCrawled || 0}`
-    );
-
-    console.log(
-      `[CRAWLER TEST] Phones found: ${result.phones?.length || 0}`
-    );
-
-    console.log(
-      `[CRAWLER TEST] Emails found: ${result.emails?.length || 0}`
-    );
-
-    console.log(
-      `[CRAWLER TEST] Addresses found: ${result.addresses?.length || 0}`
-    );
-
-    console.log(
-      `[CRAWLER TEST] Screenshot: ${
-        result.screenshotAvailable
-          ? "AVAILABLE"
-          : "NOT AVAILABLE"
-      }`
-    );
-
-    res.json({
+    return res.json({
       success: true,
       testMode: true,
       message:
@@ -71,11 +90,11 @@ router.post("/run-test", async (req, res) => {
 
   } catch (error) {
     console.error(
-      "[CRAWLER TEST] Verification error:",
+      "[CRAWLER TEST] Error:",
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error.message,
     });
@@ -84,8 +103,15 @@ router.post("/run-test", async (req, res) => {
 
 
 // =====================================================
-// VERIFY ONE BUSINESS
+// VERIFY ONE MANUALLY PROVIDED BUSINESS
+//
 // POST /api/verification/run
+//
+// Body:
+// {
+//   "businessName": "Example",
+//   "website": "https://example.com"
+// }
 // =====================================================
 
 router.post("/run", async (req, res) => {
@@ -95,10 +121,7 @@ router.post("/run", async (req, res) => {
       website,
     } = req.body;
 
-    if (
-      !businessName ||
-      !website
-    ) {
+    if (!businessName || !website) {
       return res.status(400).json({
         success: false,
         error:
@@ -110,30 +133,25 @@ router.post("/run", async (req, res) => {
       normalizeWebsite(website);
 
     console.log("\n========================================");
-    console.log("[VERIFY] Starting single verification");
-    console.log(
-      `[VERIFY] Business: ${businessName}`
-    );
+    console.log("[VERIFY] Manual verification");
+    console.log(`[VERIFY] Business: ${businessName}`);
     console.log(
       `[VERIFY] Website: ${normalizedWebsite}`
     );
     console.log("========================================\n");
 
-    const result =
-      await verifyBusiness(
-        businessName,
-        normalizedWebsite
-      );
+    const result = await verifyBusiness(
+      businessName,
+      normalizedWebsite
+    );
 
-    const saved =
-      await saveVerificationResult({
-        businessName,
-        website:
-          normalizedWebsite,
-        result,
-      });
+    const saved = await saveVerificationResult({
+      businessName,
+      website: normalizedWebsite,
+      result,
+    });
 
-    res.json({
+    return res.json({
       success: true,
       result,
       saved,
@@ -141,11 +159,11 @@ router.post("/run", async (req, res) => {
 
   } catch (error) {
     console.error(
-      "[VERIFY] Verification error:",
+      "[VERIFY] Manual verification error:",
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error.message,
     });
@@ -154,155 +172,259 @@ router.post("/run", async (req, res) => {
 
 
 // =====================================================
-// VERIFY FIRST BUSINESS FROM CSV
+// GET NEXT BUSINESS THAT NEEDS VERIFICATION
 //
-// Useful for testing CSV → crawler connection.
+// GET /api/verification/next
+//
+// IMPORTANT:
+// Reads PostgreSQL, NOT BusinessDatasets.csv
 // =====================================================
 
-router.post(
-  "/run-csv-first",
-  async (req, res) => {
-    try {
-      const businesses =
-        await loadBusinesses();
+router.get("/next", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        b.business_id,
+        b.business_name,
+        b.website,
+        b.phone_number,
+        b.email,
+        b.industry,
+        b.business_status
 
-      const firstBusiness =
-        businesses[0];
+      FROM businesses b
 
-      if (!firstBusiness) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            error:
-              "CSV contains no businesses",
-          });
-      }
+      WHERE
+        b.website IS NOT NULL
 
+        AND TRIM(b.website) <> ''
 
-      const websiteRaw =
-        firstBusiness.website ||
-        firstBusiness.Website ||
-        firstBusiness.business_website ||
-        firstBusiness.BusinessWebsite;
+        AND NOT EXISTS (
+          SELECT 1
+          FROM verification_results vr
+          WHERE vr.business_id = b.business_id
+        )
 
+      ORDER BY b.business_id ASC
 
-      const businessName =
-        firstBusiness.business_name ||
-        firstBusiness.BusinessName ||
-        firstBusiness.name ||
-        firstBusiness.Name;
+      LIMIT 1
+      `
+    );
 
-
-      if (
-        !businessName ||
-        !websiteRaw
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error:
-              "CSV row must include a business name and website",
-          });
-      }
-
-
-      const website =
-        normalizeWebsite(
-          websiteRaw
-        );
-
-
-      console.log("\n========================================");
-      console.log(
-        "[CSV TEST] Testing first CSV business"
-      );
-      console.log(
-        `[CSV TEST] Business: ${businessName}`
-      );
-      console.log(
-        `[CSV TEST] Website: ${website}`
-      );
-      console.log("========================================\n");
-
-
-      const result =
-        await verifyBusiness(
-          businessName,
-          website
-        );
-
-
-      const saved =
-        await saveVerificationResult({
-          businessName,
-          website,
-          result,
-        });
-
-
-      res.json({
+    if (result.rows.length === 0) {
+      return res.json({
         success: true,
-
-        source:
-          "BusinessDatasets.csv",
-
-        scannedBusiness:
-          firstBusiness,
-
-        result,
-
-        saved,
-      });
-
-    } catch (error) {
-      console.error(
-        "[CSV TEST] CSV verification error:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        error:
-          error.message,
+        complete: true,
+        message:
+          "No unverified businesses remain.",
+        business: null,
       });
     }
+
+    return res.json({
+      success: true,
+      complete: false,
+      business: result.rows[0],
+    });
+
+  } catch (error) {
+    console.error(
+      "[NEXT] Failed to get next business:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
-);
+});
 
 
 // =====================================================
-// VERIFY ALL BUSINESSES FROM CSV
+// VERIFY NEXT LOADED BUSINESS
+//
+// POST /api/verification/run-next
+//
+// THIS IS THE IMPORTANT BRIDGE:
+//
+// Load All Project Data
+//        ↓
+// PostgreSQL
+//        ↓
+// run-next
+//        ↓
+// Chromium
+//        ↓
+// verification_results
+// =====================================================
+
+router.post("/run-next", async (req, res) => {
+  try {
+    const databaseResult = await pool.query(
+      `
+      SELECT
+        b.business_id,
+        b.business_name,
+        b.website,
+        b.phone_number,
+        b.email,
+        b.industry,
+        b.business_status
+
+      FROM businesses b
+
+      WHERE
+        b.website IS NOT NULL
+
+        AND TRIM(b.website) <> ''
+
+        AND NOT EXISTS (
+          SELECT 1
+          FROM verification_results vr
+          WHERE vr.business_id = b.business_id
+        )
+
+      ORDER BY b.business_id ASC
+
+      LIMIT 1
+      `
+    );
+
+    if (databaseResult.rows.length === 0) {
+      return res.json({
+        success: true,
+        complete: true,
+        message:
+          "No unverified businesses remain.",
+      });
+    }
+
+    const business =
+      databaseResult.rows[0];
+
+    console.log("\n========================================");
+    console.log("[RUN NEXT]");
+    console.log(
+      `[RUN NEXT] Database business ID: ${business.business_id}`
+    );
+    console.log(
+      `[RUN NEXT] Business: ${business.business_name}`
+    );
+    console.log(
+      `[RUN NEXT] Website: ${business.website}`
+    );
+    console.log("========================================\n");
+
+    const verification =
+      await verifyAndSaveBusiness(
+        business
+      );
+
+    return res.json({
+      success: true,
+
+      source:
+        "PostgreSQL businesses table",
+
+      message:
+        "Loaded business verified successfully.",
+
+      business,
+
+      result:
+        verification.result,
+
+      saved:
+        verification.saved,
+    });
+
+  } catch (error) {
+    console.error(
+      "[RUN NEXT] Verification failed:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+
+// =====================================================
+// VERIFY ALL LOADED BUSINESSES
+//
+// POST /api/verification/run-loaded
+//
+// IMPORTANT:
+// This reads from PostgreSQL.
+//
+// It DOES NOT read BusinessDatasets.csv directly.
 // =====================================================
 
 router.post(
-  "/run-csv",
+  "/run-loaded",
   async (req, res) => {
+
     try {
+
+      // -----------------------------------------------
+      // GET BUSINESSES THAT HAVE NOT BEEN VERIFIED
+      // -----------------------------------------------
+
+      const databaseResult =
+        await pool.query(
+          `
+          SELECT
+            b.business_id,
+            b.business_name,
+            b.website,
+            b.phone_number,
+            b.email,
+            b.industry,
+            b.business_status
+
+          FROM businesses b
+
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM verification_results vr
+            WHERE vr.business_id = b.business_id
+          )
+
+          ORDER BY b.business_id ASC
+          `
+        );
+
+
       const businesses =
-        await loadBusinesses();
+        databaseResult.rows;
 
 
-      if (
-        !businesses.length
-      ) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            error:
-              "CSV contains no businesses",
-          });
+      if (!businesses.length) {
+        return res.json({
+          success: true,
+          complete: true,
+          total: 0,
+          completed: 0,
+          skipped: 0,
+          failed: 0,
+          message:
+            "No unverified businesses remain.",
+          results: [],
+        });
       }
 
 
       console.log("\n========================================");
       console.log(
-        "[CSV BATCH] Starting CSV verification"
+        "[DATABASE BATCH] Starting verification"
       );
       console.log(
-        `[CSV BATCH] Businesses loaded: ${businesses.length}`
+        `[DATABASE BATCH] Records: ${businesses.length}`
       );
       console.log("========================================\n");
 
@@ -310,179 +432,141 @@ router.post(
       const results = [];
 
 
+      // -----------------------------------------------
+      // PROCESS EACH BUSINESS
+      // -----------------------------------------------
+
       for (
         let index = 0;
         index < businesses.length;
         index++
       ) {
+
         const business =
           businesses[index];
 
 
-        const businessName =
-          business.business_name ||
-          business.BusinessName ||
-          business.name ||
-          business.Name;
-
-
-        const websiteRaw =
-          business.website ||
-          business.Website ||
-          business.business_website ||
-          business.BusinessWebsite;
-
-
         console.log("\n----------------------------------------");
-
         console.log(
-          `[CSV BATCH] Business ${
-            index + 1
-          } of ${businesses.length}`
+          `[DATABASE BATCH] ${index + 1} / ${businesses.length}`
         );
-
         console.log(
-          `[CSV BATCH] Name: ${
-            businessName ||
-            "MISSING"
-          }`
+          `[DATABASE BATCH] ${business.business_name}`
         );
-
         console.log(
-          `[CSV BATCH] Website: ${
-            websiteRaw ||
-            "MISSING"
-          }`
+          `[DATABASE BATCH] ${business.website || "NO WEBSITE"}`
         );
-
         console.log("----------------------------------------");
 
 
-        // --------------------------------------------
-        // SKIP INVALID ROWS
-        // --------------------------------------------
+        // ---------------------------------------------
+        // MISSING BUSINESS NAME
+        // ---------------------------------------------
 
-        if (
-          !businessName ||
-          !websiteRaw
-        ) {
-          console.log(
-            "[CSV BATCH] SKIPPED - Missing business name or website"
-          );
+        if (!business.business_name) {
 
           results.push({
-            businessName:
-              businessName ||
-              null,
+            business_id:
+              business.business_id,
 
-            website:
-              websiteRaw ||
-              null,
+            success: false,
 
-            success:
-              false,
-
-            status:
-              "skipped",
+            status: "skipped",
 
             error:
-              "Missing business name or website",
+              "Business name is missing",
           });
 
           continue;
         }
 
 
-        try {
-          const website =
-            normalizeWebsite(
-              websiteRaw
-            );
+        // ---------------------------------------------
+        // MISSING WEBSITE
+        //
+        // For now we skip it.
+        // Later SearXNG will discover the website.
+        // ---------------------------------------------
 
-
-          console.log(
-            `[CSV BATCH] Normalized website: ${website}`
-          );
-
-
-          // ==========================================
-          // CRAWL WEBSITE
-          // ==========================================
-
-          const result =
-            await verifyBusiness(
-              businessName,
-              website
-            );
-
-
-          // ==========================================
-          // SAVE RESULT
-          // ==========================================
-
-          const saved =
-            await saveVerificationResult({
-              businessName,
-              website,
-              result,
-            });
-
+        if (!business.website) {
 
           console.log(
-            `[CSV BATCH] Completed: ${businessName}`
+            `[DATABASE BATCH] SKIPPED: ${business.business_name} has no website`
           );
-
-          console.log(
-            `[CSV BATCH] Pages crawled: ${
-              result.pagesCrawled ||
-              0
-            }`
-          );
-
-          console.log(
-            `[CSV BATCH] Confidence: ${
-              result.confidence ??
-              0
-            }`
-          );
-
-          console.log(
-            `[CSV BATCH] Status: ${
-              result.status ||
-              "unknown"
-            }`
-          );
-
 
           results.push({
-            businessName,
-            website,
-            success:
-              true,
-            result,
-            saved,
+            business_id:
+              business.business_id,
+
+            businessName:
+              business.business_name,
+
+            success: false,
+
+            status: "skipped",
+
+            reason:
+              "missing_website",
+
+            error:
+              "No website currently stored for this business",
           });
 
-        } catch (
-          businessError
-        ) {
-          console.error(
-            `[CSV BATCH] FAILED: ${businessName}`
-          );
+          continue;
+        }
 
-          console.error(
-            `[CSV BATCH] Reason: ${businessError.message}`
-          );
+
+        // ---------------------------------------------
+        // VERIFY
+        // ---------------------------------------------
+
+        try {
+
+          const verification =
+            await verifyAndSaveBusiness(
+              business
+            );
 
 
           results.push({
-            businessName,
+            success: true,
+
+            status:
+              "completed",
+
+            ...verification,
+          });
+
+
+          console.log(
+            `[DATABASE BATCH] COMPLETE: ${business.business_name}`
+          );
+
+
+        } catch (businessError) {
+
+          console.error(
+            `[DATABASE BATCH] FAILED: ${business.business_name}`
+          );
+
+          console.error(
+            `[DATABASE BATCH] ${businessError.message}`
+          );
+
+
+          // One failed company does NOT stop batch.
+
+          results.push({
+            business_id:
+              business.business_id,
+
+            businessName:
+              business.business_name,
 
             website:
-              websiteRaw,
+              business.website,
 
-            success:
-              false,
+            success: false,
 
             status:
               "failed",
@@ -494,14 +578,15 @@ router.post(
       }
 
 
-      // =================================================
+      // -----------------------------------------------
       // SUMMARY
-      // =================================================
+      // -----------------------------------------------
 
       const completed =
         results.filter(
           (item) =>
-            item.success
+            item.status ===
+            "completed"
         ).length;
 
 
@@ -523,28 +608,28 @@ router.post(
 
       console.log("\n========================================");
       console.log(
-        "[CSV BATCH] VERIFICATION COMPLETE"
+        "[DATABASE BATCH] COMPLETE"
       );
       console.log(
-        `[CSV BATCH] Total: ${businesses.length}`
+        `[DATABASE BATCH] Total: ${businesses.length}`
       );
       console.log(
-        `[CSV BATCH] Completed: ${completed}`
+        `[DATABASE BATCH] Completed: ${completed}`
       );
       console.log(
-        `[CSV BATCH] Skipped: ${skipped}`
+        `[DATABASE BATCH] Skipped: ${skipped}`
       );
       console.log(
-        `[CSV BATCH] Failed: ${failed}`
+        `[DATABASE BATCH] Failed: ${failed}`
       );
       console.log("========================================\n");
 
 
-      res.json({
+      return res.json({
         success: true,
 
         source:
-          "BusinessDatasets.csv",
+          "PostgreSQL businesses table",
 
         total:
           businesses.length,
@@ -558,13 +643,16 @@ router.post(
         results,
       });
 
+
     } catch (error) {
+
       console.error(
-        "[CSV BATCH] Batch verification error:",
+        "[DATABASE BATCH] Fatal error:",
         error
       );
 
-      res.status(500).json({
+
+      return res.status(500).json({
         success: false,
         error:
           error.message,
@@ -572,71 +660,144 @@ router.post(
     }
   }
 );
+
+
+// =====================================================
+// LIST BUSINESSES WAITING FOR VERIFICATION
+//
+// GET /api/verification/pending
+// =====================================================
+
+router.get("/pending", async (req, res) => {
+  try {
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          b.business_id,
+          b.business_name,
+          b.website,
+          b.phone_number,
+          b.email,
+          b.industry,
+          b.business_status
+
+        FROM businesses b
+
+        WHERE NOT EXISTS (
+          SELECT 1
+
+          FROM verification_results vr
+
+          WHERE
+            vr.business_id =
+            b.business_id
+        )
+
+        ORDER BY
+          b.business_id ASC
+        `
+      );
+
+
+    return res.json({
+      success: true,
+      count:
+        result.rows.length,
+      businesses:
+        result.rows,
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "[PENDING] Error:",
+      error
+    );
+
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error.message,
+    });
+  }
+});
 
 
 // =====================================================
 // VERIFICATION HISTORY
 //
-// IMPORTANT:
-// New schema uses verification_results,
-// NOT verification_records.
+// GET /api/verification/history
 // =====================================================
 
-router.get(
-  "/history",
-  async (req, res) => {
-    try {
-      const result =
-        await pool.query(
-          `
-          SELECT
-            vr.verification_id,
-            b.business_name,
-            b.website,
-            vr.verification_status,
-            vr.confidence_score,
-            vr.discrepancies,
-            vr.notes,
-            vr.verified_at
+router.get("/history", async (req, res) => {
+  try {
 
-          FROM verification_results vr
+    const result =
+      await pool.query(
+        `
+        SELECT
+          vr.verification_id,
 
-          JOIN businesses b
-            ON vr.business_id =
-               b.business_id
+          b.business_id,
+          b.business_name,
+          b.website,
 
-          ORDER BY
-            vr.verified_at DESC
+          vr.website_verified,
+          vr.email_verified,
+          vr.phone_verified,
 
-          LIMIT 50
-          `
-        );
+          vr.verification_status,
+          vr.confidence_score,
 
+          vr.discrepancies,
+          vr.notes,
 
-      res.json({
-        success: true,
-        count:
-          result.rows.length,
-        results:
-          result.rows,
-      });
+          vr.verified_at
 
-    } catch (error) {
-      console.error(
-        "[HISTORY] Verification history error:",
-        error
+        FROM verification_results vr
+
+        JOIN businesses b
+          ON vr.business_id =
+             b.business_id
+
+        ORDER BY
+          vr.verified_at DESC
+
+        LIMIT 100
+        `
       );
 
-      res.status(500).json({
-        success: false,
-        error:
-          "Failed to load verification history",
-        detail:
-          error.message,
-      });
-    }
+
+    return res.json({
+      success: true,
+      count:
+        result.rows.length,
+      results:
+        result.rows,
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      "[HISTORY] Error:",
+      error
+    );
+
+
+    return res.status(500).json({
+      success: false,
+      error:
+        "Failed to load verification history",
+      detail:
+        error.message,
+    });
   }
-);
+});
 
 
 module.exports = router;
