@@ -1,5 +1,10 @@
 const pool = require("./db");
 
+
+// =====================================================
+// NORMALIZE WEBSITE
+// =====================================================
+
 function normalizeWebsite(website) {
   if (!website) return null;
 
@@ -12,9 +17,30 @@ function normalizeWebsite(website) {
     : `https://${cleanedWebsite}`;
 }
 
+
+// =====================================================
+// MAP VERIFICATION STATUS
+//
+// This belongs in verification_results,
+// NOT businesses.business_status.
+// =====================================================
+
 function mapVerificationStatus(result) {
-  return result?.status === "verified" ? "Verified" : "Needs Review";
+  if (result?.status === "verified") {
+    return "Verified";
+  }
+
+  if (result?.reachable === false) {
+    return "Failed";
+  }
+
+  return "Needs Review";
 }
+
+
+// =====================================================
+// BUILD DISCREPANCY DETAILS
+// =====================================================
 
 function buildDiscrepancyDetails(result) {
   const details = {
@@ -24,133 +50,195 @@ function buildDiscrepancyDetails(result) {
     errorMessage: result?.errorMessage ?? null,
     finalUrl: result?.finalUrl ?? null,
     soft404: result?.soft404 ?? false,
-    businessNameFound: result?.businessNameFound ?? false,
-    phoneFound: result?.phoneFound ?? false,
-    addressFound: result?.addressFound ?? false,
-    screenshotAvailable: result?.screenshotAvailable ?? false,
-    attempts: result?.attempts ?? []
+
+    businessNameFound:
+      result?.businessNameFound ?? false,
+
+    phoneFound:
+      result?.phoneFound ?? false,
+
+    addressFound:
+      result?.addressFound ?? false,
+
+    screenshotAvailable:
+      result?.screenshotAvailable ?? false,
+
+    pagesCrawled:
+      result?.pagesCrawled ?? 0,
+
+    attempts:
+      result?.attempts ?? []
   };
 
   return JSON.stringify(details);
 }
 
-async function getOrCreateVerificationSource(client) {
-  const existing = await client.query(
-    `SELECT source_id
-     FROM data_sources
-     WHERE source_name = $1
-     LIMIT 1`,
-    ["Website Verification Engine"]
-  );
 
-  if (existing.rows.length > 0) {
-    return existing.rows[0].source_id;
-  }
-
-  const created = await client.query(
-    `INSERT INTO data_sources (
-        source_name,
-        source_type,
-        source_url,
-        reliability_score
-     )
-     VALUES ($1, $2, $3, $4)
-     RETURNING source_id`,
-    [
-      "Website Verification Engine",
-      "Automated Web Check",
-      null,
-      0.9
-    ]
-  );
-
-  return created.rows[0].source_id;
-}
+// =====================================================
+// FIND EXISTING BUSINESS
+// =====================================================
 
 async function findExistingBusiness(
   client,
   businessName,
   normalizedWebsite
 ) {
-  const result = await client.query(
-    `SELECT
-        business_id,
-        business_name,
-        website
-     FROM businesses
-     WHERE LOWER(TRIM(business_name)) = LOWER(TRIM($1))
-        OR ($2::text IS NOT NULL AND website = $2)
-     LIMIT 1`,
-    [businessName, normalizedWebsite]
+  const query = await client.query(
+    `
+    SELECT
+      business_id,
+      business_name,
+      website,
+      business_status
+
+    FROM businesses
+
+    WHERE
+      LOWER(TRIM(business_name)) =
+      LOWER(TRIM($1))
+
+      OR (
+        $2::text IS NOT NULL
+        AND website = $2
+      )
+
+    LIMIT 1
+    `,
+    [
+      businessName,
+      normalizedWebsite
+    ]
   );
 
-  return result.rows[0] || null;
+  return query.rows[0] || null;
 }
+
+
+// =====================================================
+// CREATE BUSINESS
+//
+// IMPORTANT:
+// Business status and verification status are separate.
+//
+// business_status:
+// Active / Pending / Inactive / Imported
+//
+// verification_status:
+// Verified / Needs Review / Failed
+// =====================================================
 
 async function createBusiness(
   client,
   businessName,
-  normalizedWebsite,
-  verificationStatus
+  normalizedWebsite
 ) {
-  const result = await client.query(
-    `INSERT INTO businesses (
-        business_name,
-        website,
-        business_status
-     )
-     VALUES ($1, $2, $3)
-     RETURNING business_id`,
+  const query = await client.query(
+    `
+    INSERT INTO businesses (
+      business_name,
+      website,
+      business_status
+    )
+
+    VALUES (
+      $1,
+      $2,
+      $3
+    )
+
+    RETURNING
+      business_id,
+      business_name,
+      website,
+      business_status
+    `,
     [
       businessName,
       normalizedWebsite,
-      verificationStatus
+      "Pending"
     ]
   );
 
-  return result.rows[0].business_id;
+  return query.rows[0];
 }
+
+
+// =====================================================
+// UPDATE EXISTING BUSINESS
+//
+// Do NOT overwrite business_status with
+// "Verified" or "Needs Review".
+// =====================================================
 
 async function updateBusiness(
   client,
   businessId,
-  normalizedWebsite,
-  verificationStatus
+  normalizedWebsite
 ) {
-  await client.query(
-    `UPDATE businesses
-     SET website = COALESCE($1, website),
-         business_status = $2,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE business_id = $3`,
+  const query = await client.query(
+    `
+    UPDATE businesses
+
+    SET
+      website = COALESCE($1, website),
+      updated_at = CURRENT_TIMESTAMP
+
+    WHERE business_id = $2
+
+    RETURNING
+      business_id,
+      business_name,
+      website,
+      business_status
+    `,
     [
       normalizedWebsite,
-      verificationStatus,
       businessId
     ]
   );
+
+  return query.rows[0];
 }
+
+
+// =====================================================
+// CREATE WORKFLOW TASK
+// =====================================================
 
 async function createWorkflowTask(
   client,
   businessId,
   verificationStatus
 ) {
+  // ---------------------------------------------
+  // VERIFIED
+  // ---------------------------------------------
+
   if (verificationStatus === "Verified") {
     await client.query(
-      `INSERT INTO workflow_tasks (
-          business_id,
-          task_name,
-          task_type,
-          task_status,
-          assigned_to,
-          completed_at
-       )
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+      `
+      INSERT INTO workflow_tasks (
+        business_id,
+        task_name,
+        task_description,
+        task_status,
+        assigned_to,
+        completed_at
+      )
+
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        CURRENT_TIMESTAMP
+      )
+      `,
       [
         businessId,
         "Verification completed",
-        "Verification",
+        "Automated website verification completed successfully.",
         "Completed",
         "AI Verification Engine"
       ]
@@ -159,32 +247,45 @@ async function createWorkflowTask(
     return;
   }
 
+
+  // ---------------------------------------------
+  // NEEDS REVIEW / FAILED
+  // ---------------------------------------------
+
   await client.query(
-    `INSERT INTO workflow_tasks (
-        business_id,
-        task_name,
-        task_type,
-        task_status,
-        assigned_to,
-        due_date
-     )
-     VALUES (
-        $1,
-        $2,
-        $3,
-        $4,
-        $5,
-        CURRENT_DATE + INTERVAL '3 days'
-     )`,
+    `
+    INSERT INTO workflow_tasks (
+      business_id,
+      task_name,
+      task_description,
+      task_status,
+      assigned_to,
+      due_date
+    )
+
+    VALUES (
+      $1,
+      $2,
+      $3,
+      $4,
+      $5,
+      CURRENT_TIMESTAMP + INTERVAL '3 days'
+    )
+    `,
     [
       businessId,
       "Manual review required",
-      "Manual Review",
+      `Automated verification returned status: ${verificationStatus}.`,
       "Pending",
-      "Kevin Ferreira"
+      "Human Reviewer"
     ]
   );
 }
+
+
+// =====================================================
+// SAVE VERIFICATION RESULT
+// =====================================================
 
 async function saveVerificationResult({
   businessName,
@@ -196,77 +297,139 @@ async function saveVerificationResult({
   try {
     await client.query("BEGIN");
 
-    const normalizedWebsite = normalizeWebsite(
-      result?.finalUrl || website
-    );
 
-    const verificationStatus = mapVerificationStatus(result);
+    // =================================================
+    // 1. PREPARE VALUES
+    // =================================================
 
-    const confidenceScore = Number.isFinite(
-      Number(result?.confidence)
-    )
-      ? Number(result.confidence)
-      : 0;
+    const normalizedWebsite =
+      normalizeWebsite(
+        result?.finalUrl ||
+        website
+      );
 
-    const existingBusiness = await findExistingBusiness(
-      client,
-      businessName,
-      normalizedWebsite
-    );
 
-    let businessId;
+    const verificationStatus =
+      mapVerificationStatus(result);
 
-    if (!existingBusiness) {
-      businessId = await createBusiness(
+
+    const confidenceScore =
+      Number.isFinite(
+        Number(result?.confidence)
+      )
+        ? Number(result.confidence)
+        : 0;
+
+
+    // =================================================
+    // 2. FIND OR CREATE BUSINESS
+    // =================================================
+
+    const existingBusiness =
+      await findExistingBusiness(
         client,
         businessName,
-        normalizedWebsite,
-        verificationStatus
+        normalizedWebsite
       );
-    } else {
-      businessId = existingBusiness.business_id;
 
-      await updateBusiness(
-        client,
-        businessId,
-        normalizedWebsite,
-        verificationStatus
-      );
+
+    let business;
+
+
+    if (!existingBusiness) {
+
+      business =
+        await createBusiness(
+          client,
+          businessName,
+          normalizedWebsite
+        );
+
+    } else {
+
+      business =
+        await updateBusiness(
+          client,
+          existingBusiness.business_id,
+          normalizedWebsite
+        );
     }
 
-    const sourceId = await getOrCreateVerificationSource(client);
 
-    const verifiedWebsite =
-      result?.finalUrl ||
-      result?.website ||
-      normalizedWebsite;
+    const businessId =
+      business.business_id;
 
-    const verifiedPhone = result?.phoneFound
-      ? "Phone found on public webpage"
-      : null;
 
-    const verifiedAddress = result?.addressFound
-      ? "Address found on public webpage"
-      : null;
+    // =================================================
+    // 3. DETERMINE VERIFICATION EVIDENCE
+    // =================================================
+
+    const websiteVerified =
+      Boolean(
+        result?.reachable &&
+        (
+          result?.finalUrl ||
+          result?.website ||
+          normalizedWebsite
+        )
+      );
+
+
+    const phoneVerified =
+      Boolean(
+        result?.phoneFound
+      );
+
+
+    const emailVerified =
+      Boolean(
+        result?.emailFound ||
+        (
+          Array.isArray(result?.emails) &&
+          result.emails.length > 0
+        )
+      );
+
+
+    // =================================================
+    // 4. DISCREPANCIES / NOTES
+    // =================================================
 
     const discrepancies =
       verificationStatus === "Verified"
         ? null
         : buildDiscrepancyDetails(result);
 
-    const verificationRecord = await client.query(
-      `INSERT INTO verification_records (
+
+    const notes = [
+      `Business: ${businessName}`,
+      `Website: ${normalizedWebsite || "Not available"}`,
+      `Reachable: ${result?.reachable ? "Yes" : "No"}`,
+      `Screenshot: ${result?.screenshotAvailable ? "Available" : "Not available"}`,
+      `Pages crawled: ${result?.pagesCrawled ?? 0}`
+    ].join(" | ");
+
+
+    // =================================================
+    // 5. INSERT INTO NEW verification_results TABLE
+    // =================================================
+
+    const verificationRecord =
+      await client.query(
+        `
+        INSERT INTO verification_results (
           business_id,
-          source_id,
-          verified_name,
-          verified_website,
-          verified_phone,
-          verified_address,
-          verification_status,
+          website_verified,
+          email_verified,
+          phone_verified,
           confidence_score,
-          discrepancies
-       )
-       VALUES (
+          verification_status,
+          discrepancies,
+          notes,
+          verified_at
+        )
+
+        VALUES (
           $1,
           $2,
           $3,
@@ -275,21 +438,27 @@ async function saveVerificationResult({
           $6,
           $7,
           $8,
-          $9
-       )
-       RETURNING *`,
-      [
-        businessId,
-        sourceId,
-        result?.businessName || businessName,
-        verifiedWebsite,
-        verifiedPhone,
-        verifiedAddress,
-        verificationStatus,
-        confidenceScore,
-        discrepancies
-      ]
-    );
+          CURRENT_TIMESTAMP
+        )
+
+        RETURNING *
+        `,
+        [
+          businessId,
+          websiteVerified,
+          emailVerified,
+          phoneVerified,
+          confidenceScore,
+          verificationStatus,
+          discrepancies,
+          notes
+        ]
+      );
+
+
+    // =================================================
+    // 6. CREATE WORKFLOW TASK
+    // =================================================
 
     await createWorkflowTask(
       client,
@@ -297,68 +466,94 @@ async function saveVerificationResult({
       verificationStatus
     );
 
+
+    // =================================================
+    // 7. ACTIVITY LOG
+    // =================================================
+
     await client.query(
-      `INSERT INTO activity_logs (
-          action_type,
-          description,
-          related_business_id,
-          created_by
-       )
-       VALUES ($1, $2, $3, $4)`,
+      `
+      INSERT INTO activity_logs (
+        action_type,
+        description
+      )
+
+      VALUES (
+        $1,
+        $2
+      )
+      `,
       [
         "VERIFY",
-        `${businessName} verification completed with status ${verificationStatus} and confidence ${confidenceScore}.`,
-        businessId,
-        "AI Verification Engine"
+        `${businessName} verification completed with status ${verificationStatus} and confidence ${confidenceScore}.`
       ]
     );
 
-    await client.query(
-      `INSERT INTO notifications (
-          business_id,
-          notification_type,
-          title,
-          message,
-          severity
-       )
-       VALUES ($1, $2, $3, $4, $5)`,
-      [
-        businessId,
-        "VERIFICATION",
-        verificationStatus === "Verified"
-          ? "Verification complete"
-          : "Manual review required",
-        `${businessName} received status ${verificationStatus} with confidence ${confidenceScore}.`,
-        verificationStatus === "Verified"
-          ? "Success"
-          : "Warning"
-      ]
-    );
+
+    // =================================================
+    // 8. COMMIT TRANSACTION
+    // =================================================
 
     await client.query("COMMIT");
 
+
+    console.log(
+      `[TRACKING] Verification saved for ${businessName}`
+    );
+
+    console.log(
+      `[TRACKING] Business ID: ${businessId}`
+    );
+
+    console.log(
+      `[TRACKING] Verification status: ${verificationStatus}`
+    );
+
+    console.log(
+      `[TRACKING] Confidence: ${confidenceScore}`
+    );
+
+
     return {
-      business_id: businessId,
-      verification_record:
+      business_id:
+        businessId,
+
+      business,
+
+      verification_result:
         verificationRecord.rows[0]
     };
+
+
   } catch (error) {
+
     await client.query("ROLLBACK");
 
+
     console.error(
-      "Failed to save verification result:",
+      "[TRACKING] Failed to save verification result:",
       {
         businessName,
         website,
-        error: error.message
+        error:
+          error.message
       }
     );
 
+
     throw error;
+
+
   } finally {
+
     client.release();
   }
 }
+
+
+// =====================================================
+// EXPORTS
+// =====================================================
 
 module.exports = {
   normalizeWebsite,
