@@ -5,7 +5,8 @@ const {
   listInputFiles,
   loadBusinessDataset,
   loadBusinessDocuments,
-  loadEmployeeDocuments
+  loadEmployeeDocuments,
+  loadAllInputData
 } = require("../services/fileLoaderService");
 
 
@@ -121,7 +122,7 @@ router.post("/employee-documents", async (req, res) => {
 
 
 // =====================================================
-// LOAD ALL PROJECT DATA
+// LOAD EVERYTHING
 // POST /api/load/all
 // =====================================================
 
@@ -131,76 +132,20 @@ router.post("/all", async (req, res) => {
     console.log("[LOAD ALL] Starting full project import");
     console.log("========================================");
 
-    // -------------------------------------------------
-    // 1. BUSINESS DATASETS
-    // -------------------------------------------------
-
-    console.log("[LOAD ALL] Step 1/3: Business datasets");
-
-    const businessDataset =
-      await loadBusinessDataset();
-
-    console.log(
-      "[LOAD ALL] Business datasets complete."
-    );
-
-
-    // -------------------------------------------------
-    // 2. BUSINESS DOCUMENTS
-    // -------------------------------------------------
-
-    console.log("[LOAD ALL] Step 2/3: Business documents");
-
-    const businessDocuments =
-      await loadBusinessDocuments();
-
-    console.log(
-      "[LOAD ALL] Business documents complete."
-    );
-
-
-    // -------------------------------------------------
-    // 3. EMPLOYEE DOCUMENTS
-    // -------------------------------------------------
-
-    console.log("[LOAD ALL] Step 3/3: Employee documents");
-
-    const employeeDocuments =
-      await loadEmployeeDocuments();
-
-    console.log(
-      "[LOAD ALL] Employee documents complete."
-    );
-
-
-    // -------------------------------------------------
-    // COMPLETE
-    // -------------------------------------------------
+    const result = await loadAllInputData();
 
     console.log("========================================");
     console.log("[LOAD ALL] Full project import complete");
     console.log("========================================");
 
-
     res.json({
       success: true,
-
-      message:
-        "All project data loaded successfully.",
-
-      results: {
-        businessDataset,
-        businessDocuments,
-        employeeDocuments
-      }
+      message: "All project data loaded successfully.",
+      result
     });
 
   } catch (error) {
-    console.error(
-      "[LOAD ALL] Full import failed:",
-      error
-    );
-
+    console.error("[LOAD ALL] Full import failed:", error);
     handleError(res, error);
   }
 });
