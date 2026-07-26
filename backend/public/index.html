@@ -11,7 +11,274 @@
   <div class="app">
     <header class="hero">
       <div>
-        <p class="eyebrow">Backend Operations Center</p>
+        <p class="eyebrow">Backend Operations Center</p><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>AI Verification Backend</title>
+
+  <link
+    rel="stylesheet"
+    href="styles.css"
+  />
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- ==================================================
+         HEADER
+    =================================================== -->
+
+    <header class="hero">
+      <div>
+        <p class="eyebrow">
+          Backend Operations Center
+        </p>
+
+        <h1>
+          AI Business Verification Engine
+        </h1>
+
+        <p class="subtitle">
+          Chromium crawler, project data import,
+          confidence scoring, and verification monitoring.
+        </p>
+      </div>
+
+      <div class="status-pill">
+        <span class="dot"></span>
+        API Online
+      </div>
+    </header>
+
+
+    <!-- ==================================================
+         SYSTEM STATUS
+    =================================================== -->
+
+    <section class="cards">
+
+      <div class="card">
+        <p>API Status</p>
+        <h2 id="apiStatus">
+          Online
+        </h2>
+      </div>
+
+      <div class="card">
+        <p>Database</p>
+        <h2 id="dbStatus">
+          Checking...
+        </h2>
+      </div>
+
+      <div class="card">
+        <p>Chromium</p>
+        <h2 id="chromiumStatus">
+          Ready
+        </h2>
+      </div>
+
+      <div class="card">
+        <p>Ollama</p>
+        <h2 id="ollamaStatus">
+          Pending
+        </h2>
+      </div>
+
+    </section>
+
+
+    <!-- ==================================================
+         CRAWLER + VERIFICATION RESULT
+    =================================================== -->
+
+    <main class="grid">
+
+      <!-- ================================================
+           LIVE CRAWLER
+      ================================================= -->
+
+      <section class="panel crawler-panel">
+
+        <div class="panel-header">
+
+          <div>
+            <p class="eyebrow">
+              Live Viewer
+            </p>
+
+            <h2>
+              Chromium Crawler Screen
+            </h2>
+          </div>
+
+          <button id="runBtn">
+            Run Test Scan
+          </button>
+
+        </div>
+
+
+        <div class="browser-box">
+
+          <div class="browser-top">
+            <span></span>
+            <span></span>
+            <span></span>
+
+            <p>
+              crawler://verification-engine
+            </p>
+          </div>
+
+
+          <div
+            class="browser-body"
+            id="crawlerScreen"
+          >
+
+            <div class="globe">
+              🌐
+            </div>
+
+            <h3>
+              Waiting for scan...
+            </h3>
+
+            <p>
+              Run a test verification
+              to activate Chromium.
+            </p>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ================================================
+           VERIFICATION RESULT
+      ================================================= -->
+
+      <section class="panel">
+
+        <p class="eyebrow">
+          Verification Result
+        </p>
+
+        <h2 id="scanTitle">
+          No scan yet
+        </h2>
+
+
+        <div class="score-ring">
+          <span id="confidenceScore">
+            0%
+          </span>
+        </div>
+
+
+        <div class="evidence">
+
+          <p id="websiteEvidence">
+            ○ Website evidence
+          </p>
+
+          <p id="phoneEvidence">
+            ○ Phone evidence
+          </p>
+
+          <p id="addressEvidence">
+            ○ Address evidence
+          </p>
+
+        </div>
+
+      </section>
+
+    </main>
+
+
+    <!-- ==================================================
+         DATA IMPORT CENTER
+    =================================================== -->
+
+    <section class="panel">
+
+      <p class="eyebrow">
+        Data Import Center
+      </p>
+
+      <h2>
+        Project Data
+      </h2>
+
+      <p class="subtitle">
+        Review the files available to the backend,
+        then load all business and employee project data
+        into PostgreSQL.
+      </p>
+
+
+      <div class="button-row">
+
+        <button id="listFilesBtn">
+          Show Input Files
+        </button>
+
+        <button id="loadAllBtn">
+          Load All Project Data
+        </button>
+
+      </div>
+
+
+      <div
+        id="loadResults"
+        class="evidence"
+      >
+        <p>
+          No project data loaded yet.
+        </p>
+      </div>
+
+    </section>
+
+
+    <!-- ==================================================
+         BACKEND CONSOLE
+    =================================================== -->
+
+    <section class="panel console">
+
+      <p class="eyebrow">
+        Backend Console
+      </p>
+
+      <div id="activityLog">
+        <p>
+          System initialized.
+          Waiting for data import
+          and verification requests.
+        </p>
+      </div>
+
+    </section>
+
+  </div>
+
+
+  <script src="app.js"></script>
+</body>
+</html>
         <h1>AI Business Verification Engine</h1>
         <p class="subtitle">
           Chromium crawler, API status, confidence scoring, and verification monitoring.
