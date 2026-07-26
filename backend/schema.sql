@@ -284,8 +284,8 @@ LEFT JOIN verification_results vr
 -- INDEXES
 -- =====================================================
 
--- No separate business_name index is needed because
--- UNIQUE automatically creates an index.
+-- business_name is UNIQUE, so PostgreSQL automatically
+-- creates an index for it.
 
 CREATE INDEX idx_business_status
     ON businesses(business_status);
@@ -305,11 +305,8 @@ CREATE INDEX idx_verification_business
 CREATE INDEX idx_verification_status
     ON verification_results(verification_status);
 
--- email UNIQUE already creates an index,
--- so no extra idx_user_email is necessary.
-
-CREATE INDEX idx_documents_business_id
-    ON documents(business_id);
+-- system_users.email is UNIQUE, so PostgreSQL automatically
+-- creates an index for it.
 
 
 -- =====================================================
