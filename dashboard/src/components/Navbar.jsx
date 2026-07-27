@@ -1,11 +1,26 @@
 import { Link, useLocation } from "react-router-dom";
 
 const links = [
-  { path: "/",             label: "Dashboard" },
-  { path: "/businesses",  label: "Businesses" },
-  { path: "/upload",      label: "Upload" },
-  { path: "/verification",label: "Verification" },
-  { path: "/reports",     label: "Reports" },
+  {
+    path: "/",
+    label: "Dashboard",
+  },
+  {
+    path: "/businesses",
+    label: "Businesses",
+  },
+  {
+    path: "/upload",
+    label: "Document Center",
+  },
+  {
+    path: "/verification",
+    label: "Verification",
+  },
+  {
+    path: "/reports",
+    label: "Reports",
+  },
 ];
 
 export default function Navbar() {
@@ -13,21 +28,32 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
+
       <div className="navbar-brand">
         🤖 AI Business Verification
       </div>
+
       <ul className="navbar-links">
-        {links.map((l) => (
-          <li key={l.path}>
+
+        {links.map((link) => (
+          <li key={link.path}>
+
             <Link
-              to={l.path}
-              className={pathname === l.path ? "active" : ""}
+              to={link.path}
+              className={
+                pathname === link.path
+                  ? "active"
+                  : ""
+              }
             >
-              {l.label}
+              {link.label}
             </Link>
+
           </li>
         ))}
+
       </ul>
+
     </nav>
   );
 }
