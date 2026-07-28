@@ -138,6 +138,46 @@ export const runVerification = async (
   );
 };
 
+export const approveBusinessVerification = async (
+  businessId,
+  confidenceScore = null,
+  notes = null
+) => {
+  const res = await fetch(`${API_BASE}/verification/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      businessId,
+      confidenceScore,
+      notes,
+    }),
+  });
+
+  return handleResponse(res, "Approve verification");
+};
+
+export const rejectBusinessVerification = async (
+  businessId,
+  confidenceScore = null,
+  notes = null
+) => {
+  const res = await fetch(`${API_BASE}/verification/reject`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      businessId,
+      confidenceScore,
+      notes,
+    }),
+  });
+
+  return handleResponse(res, "Reject verification");
+};
+
 
 // =======================================================
 // DASHBOARD

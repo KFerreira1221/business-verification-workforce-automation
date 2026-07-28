@@ -1,4 +1,4 @@
-export default function VerificationCard({ result, onApprove, onReject }) {
+export default function VerificationCard({ result, onApprove, onReject, disabled = false }) {
   if (!result) return null;
 
   const { business, website, phone, email, confidence, recommendation } = result;
@@ -8,7 +8,10 @@ export default function VerificationCard({ result, onApprove, onReject }) {
       <h3>Verification Results</h3>
       <table className="v-table">
         <tbody>
-          <tr><td>Business</td><td><strong>{business}</strong></td></tr>
+          <tr>
+            <td>Business</td>
+            <td><strong>{business}</strong></td>
+          </tr>
           <tr>
             <td>Website</td>
             <td><span className="badge badge-green">{website}</span></td>
@@ -37,8 +40,20 @@ export default function VerificationCard({ result, onApprove, onReject }) {
       </table>
 
       <div className="v-actions">
-        <button className="btn-approve" onClick={() => onApprove(result)}>✅ Approve</button>
-        <button className="btn-reject"  onClick={() => onReject(result)}>❌ Reject</button>
+        <button
+          className="btn-approve"
+          onClick={() => onApprove(result)}
+          disabled={disabled}
+        >
+          ✅ Approve
+        </button>
+        <button
+          className="btn-reject"
+          onClick={() => onReject(result)}
+          disabled={disabled}
+        >
+          ❌ Reject
+        </button>
       </div>
     </div>
   );
