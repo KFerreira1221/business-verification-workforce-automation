@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
 
   <title>AI Verification Backend</title>
 
@@ -18,9 +21,13 @@
 
     <header class="hero">
       <div>
-        <p class="eyebrow">Backend Operations Center</p>
+        <p class="eyebrow">
+          Backend Operations Center
+        </p>
 
-        <h1>AI Business Verification Engine</h1>
+        <h1>
+          AI Business Verification Engine
+        </h1>
 
         <p class="subtitle">
           Chromium crawler, project data import,
@@ -43,22 +50,30 @@
 
       <div class="card">
         <p>API Status</p>
-        <h2 id="apiStatus">Online</h2>
+        <h2 id="apiStatus">
+          Checking...
+        </h2>
       </div>
 
       <div class="card">
         <p>Database</p>
-        <h2 id="dbStatus">Checking...</h2>
+        <h2 id="dbStatus">
+          Checking...
+        </h2>
       </div>
 
       <div class="card">
         <p>Chromium</p>
-        <h2 id="chromiumStatus">Ready</h2>
+        <h2 id="chromiumStatus">
+          Checking...
+        </h2>
       </div>
 
       <div class="card">
         <p>Ollama</p>
-        <h2 id="ollamaStatus">Pending</h2>
+        <h2 id="ollamaStatus">
+          Checking...
+        </h2>
       </div>
 
     </section>
@@ -70,23 +85,33 @@
 
     <main class="grid">
 
-      <!-- LIVE CHROMIUM CRAWLER -->
       <section class="panel crawler-panel">
 
         <div class="panel-header">
 
           <div>
-            <p class="eyebrow">Live Viewer</p>
-            <h2>Chromium Crawler Screen</h2>
+            <p class="eyebrow">
+              Live Viewer
+            </p>
+
+            <h2>
+              Chromium Crawler Screen
+            </h2>
           </div>
 
           <div class="button-row">
 
-            <button id="runBtn">
+            <button
+              id="runBtn"
+              type="button"
+            >
               Run Test Scan
             </button>
 
-            <button id="verifyNextBtn">
+            <button
+              id="verifyNextBtn"
+              type="button"
+            >
               Verify Next Business
             </button>
 
@@ -113,9 +138,13 @@
             id="crawlerScreen"
           >
 
-            <div class="globe">🌐</div>
+            <div class="globe">
+              🌐
+            </div>
 
-            <h3>Waiting for scan...</h3>
+            <h3>
+              Waiting for scan...
+            </h3>
 
             <p>
               Run a crawler test or verify the next
@@ -130,6 +159,7 @@
 
 
       <!-- VERIFICATION RESULTS -->
+
       <section class="panel">
 
         <p class="eyebrow">
@@ -192,11 +222,17 @@
 
       <div class="button-row">
 
-        <button id="listFilesBtn">
+        <button
+          id="listFilesBtn"
+          type="button"
+        >
           Show Input Files
         </button>
 
-        <button id="loadAllBtn">
+        <button
+          id="loadAllBtn"
+          type="button"
+        >
           Load All Project Data
         </button>
 
@@ -236,8 +272,6 @@
 
   </div>
 
-
-  <script src="app.js"></script>
-
+  <script src="/app.js"></script>
 </body>
 </html>
