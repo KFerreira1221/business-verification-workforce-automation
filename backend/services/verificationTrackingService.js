@@ -1,4 +1,22 @@
-const pool = require("./db");
+// =====================================================
+// IN-MEMORY VERIFICATION TRACKING SERVICE
+//
+// PostgreSQL has been removed from this service.
+//
+// Results are stored temporarily in server memory.
+// They remain available while the backend is running,
+// but they reset whenever Render restarts or redeploys.
+// =====================================================
+
+
+// =====================================================
+// TEMPORARY IN-MEMORY STORAGE
+// =====================================================
+
+const verificationHistory = [];
+
+let nextVerificationId = 1;
+let nextBusinessId = 1;
 
 
 // =====================================================
@@ -6,11 +24,17 @@ const pool = require("./db");
 // =====================================================
 
 function normalizeWebsite(website) {
-  if (!website) return null;
+  if (!website) {
+    return null;
+  }
 
-  const cleanedWebsite = String(website).trim();
+  const cleanedWebsite = String(
+    website
+  ).trim();
 
-  if (!cleanedWebsite) return null;
+  if (!cleanedWebsite) {
+    return null;
+  }
 
   return /^https?:\/\//i.test(cleanedWebsite)
     ? cleanedWebsite
@@ -20,9 +44,6 @@ function normalizeWebsite(website) {
 
 // =====================================================
 // MAP VERIFICATION STATUS
-//
-// This belongs in verification_results,
-// NOT businesses.business_status.
 // =====================================================
 
 function mapVerificationStatus(result) {
@@ -43,19 +64,33 @@ function mapVerificationStatus(result) {
 // =====================================================
 
 function buildDiscrepancyDetails(result) {
-  const details = {
-    reachable: result?.reachable ?? null,
-    httpStatus: result?.httpStatus ?? null,
-    errorType: result?.errorType ?? null,
-    errorMessage: result?.errorMessage ?? null,
-    finalUrl: result?.finalUrl ?? null,
-    soft404: result?.soft404 ?? false,
+  return {
+    reachable:
+      result?.reachable ?? null,
+
+    httpStatus:
+      result?.httpStatus ?? null,
+
+    errorType:
+      result?.errorType ?? null,
+
+    errorMessage:
+      result?.errorMessage ?? null,
+
+    finalUrl:
+      result?.finalUrl ?? null,
+
+    soft404:
+      result?.soft404 ?? false,
 
     businessNameFound:
       result?.businessNameFound ?? false,
 
     phoneFound:
       result?.phoneFound ?? false,
+
+    emailFound:
+      result?.emailFound ?? false,
 
     addressFound:
       result?.addressFound ?? false,
@@ -67,487 +102,350 @@ function buildDiscrepancyDetails(result) {
       result?.pagesCrawled ?? 0,
 
     attempts:
-      result?.attempts ?? []
+      Array.isArray(result?.attempts)
+        ? result.attempts
+        : [],
   };
-
-  return JSON.stringify(details);
 }
 
 
 // =====================================================
-// FIND EXISTING BUSINESS
+// CREATE BUSINESS OBJECT
 // =====================================================
 
-async function findExistingBusiness(
-  client,
+function createBusinessObject(
   businessName,
-  normalizedWebsite
+  website,
+  result
 ) {
-  const query = await client.query(
-    `
-    SELECT
-      business_id,
-      business_name,
-      website,
-      business_status
+  return {
+    business_id:
+      nextBusinessId++,
 
-    FROM businesses
-
-    WHERE
-      LOWER(TRIM(business_name)) =
-      LOWER(TRIM($1))
-
-      OR (
-        $2::text IS NOT NULL
-        AND website = $2
-      )
-
-    LIMIT 1
-    `,
-    [
+    business_name:
       businessName,
-      normalizedWebsite
-    ]
-  );
 
-  return query.rows[0] || null;
-}
+    website:
+      normalizeWebsite(
+        result?.finalUrl ||
+        website
+      ),
 
-
-// =====================================================
-// CREATE BUSINESS
-//
-// IMPORTANT:
-// Business status and verification status are separate.
-//
-// business_status:
-// Active / Pending / Inactive / Imported
-//
-// verification_status:
-// Verified / Needs Review / Failed
-// =====================================================
-
-async function createBusiness(
-  client,
-  businessName,
-  normalizedWebsite
-) {
-  const query = await client.query(
-    `
-    INSERT INTO businesses (
-      business_name,
-      website,
-      business_status
-    )
-
-    VALUES (
-      $1,
-      $2,
-      $3
-    )
-
-    RETURNING
-      business_id,
-      business_name,
-      website,
-      business_status
-    `,
-    [
-      businessName,
-      normalizedWebsite,
-      "Pending"
-    ]
-  );
-
-  return query.rows[0];
-}
-
-
-// =====================================================
-// UPDATE EXISTING BUSINESS
-//
-// Do NOT overwrite business_status with
-// "Verified" or "Needs Review".
-// =====================================================
-
-async function updateBusiness(
-  client,
-  businessId,
-  normalizedWebsite
-) {
-  const query = await client.query(
-    `
-    UPDATE businesses
-
-    SET
-      website = COALESCE($1, website),
-      updated_at = CURRENT_TIMESTAMP
-
-    WHERE business_id = $2
-
-    RETURNING
-      business_id,
-      business_name,
-      website,
-      business_status
-    `,
-    [
-      normalizedWebsite,
-      businessId
-    ]
-  );
-
-  return query.rows[0];
-}
-
-
-// =====================================================
-// CREATE WORKFLOW TASK
-// =====================================================
-
-async function createWorkflowTask(
-  client,
-  businessId,
-  verificationStatus
-) {
-  // ---------------------------------------------
-  // VERIFIED
-  // ---------------------------------------------
-
-  if (verificationStatus === "Verified") {
-    await client.query(
-      `
-      INSERT INTO workflow_tasks (
-        business_id,
-        task_name,
-        task_description,
-        task_status,
-        assigned_to,
-        completed_at
-      )
-
-      VALUES (
-        $1,
-        $2,
-        $3,
-        $4,
-        $5,
-        CURRENT_TIMESTAMP
-      )
-      `,
-      [
-        businessId,
-        "Verification completed",
-        "Automated website verification completed successfully.",
-        "Completed",
-        "AI Verification Engine"
-      ]
-    );
-
-    return;
-  }
-
-
-  // ---------------------------------------------
-  // NEEDS REVIEW / FAILED
-  // ---------------------------------------------
-
-  await client.query(
-    `
-    INSERT INTO workflow_tasks (
-      business_id,
-      task_name,
-      task_description,
-      task_status,
-      assigned_to,
-      due_date
-    )
-
-    VALUES (
-      $1,
-      $2,
-      $3,
-      $4,
-      $5,
-      CURRENT_TIMESTAMP + INTERVAL '3 days'
-    )
-    `,
-    [
-      businessId,
-      "Manual review required",
-      `Automated verification returned status: ${verificationStatus}.`,
+    business_status:
       "Pending",
-      "Human Reviewer"
-    ]
-  );
+
+    created_at:
+      new Date().toISOString(),
+
+    updated_at:
+      new Date().toISOString(),
+  };
 }
 
 
 // =====================================================
-// SAVE VERIFICATION RESULT
+// SAVE VERIFICATION RESULT IN MEMORY
 // =====================================================
 
 async function saveVerificationResult({
   businessName,
   website,
-  result
+  result,
 }) {
-  const client = await pool.connect();
+  if (!businessName) {
+    throw new Error(
+      "businessName is required"
+    );
+  }
 
-  try {
-    await client.query("BEGIN");
+  if (!website) {
+    throw new Error(
+      "website is required"
+    );
+  }
 
+  const normalizedWebsite =
+    normalizeWebsite(
+      result?.finalUrl ||
+      website
+    );
 
-    // =================================================
-    // 1. PREPARE VALUES
-    // =================================================
+  const verificationStatus =
+    mapVerificationStatus(result);
 
-    const normalizedWebsite =
-      normalizeWebsite(
-        result?.finalUrl ||
-        website
-      );
+  const confidenceScore =
+    Number.isFinite(
+      Number(result?.confidence)
+    )
+      ? Number(result.confidence)
+      : 0;
 
+  const websiteVerified =
+    Boolean(
+      result?.reachable &&
+      normalizedWebsite
+    );
 
-    const verificationStatus =
-      mapVerificationStatus(result);
-
-
-    const confidenceScore =
-      Number.isFinite(
-        Number(result?.confidence)
+  const phoneVerified =
+    Boolean(
+      result?.phoneFound ||
+      (
+        Array.isArray(result?.phones) &&
+        result.phones.length > 0
       )
-        ? Number(result.confidence)
-        : 0;
+    );
 
+  const emailVerified =
+    Boolean(
+      result?.emailFound ||
+      (
+        Array.isArray(result?.emails) &&
+        result.emails.length > 0
+      )
+    );
 
-    // =================================================
-    // 2. FIND OR CREATE BUSINESS
-    // =================================================
+  const business =
+    createBusinessObject(
+      businessName,
+      normalizedWebsite,
+      result
+    );
 
-    const existingBusiness =
-      await findExistingBusiness(
-        client,
-        businessName,
-        normalizedWebsite
-      );
+  const verificationRecord = {
+    verification_id:
+      nextVerificationId++,
 
+    business_id:
+      business.business_id,
 
-    let business;
+    business_name:
+      businessName,
 
+    website:
+      normalizedWebsite,
 
-    if (!existingBusiness) {
+    website_verified:
+      websiteVerified,
 
-      business =
-        await createBusiness(
-          client,
-          businessName,
-          normalizedWebsite
-        );
+    email_verified:
+      emailVerified,
 
-    } else {
+    phone_verified:
+      phoneVerified,
 
-      business =
-        await updateBusiness(
-          client,
-          existingBusiness.business_id,
-          normalizedWebsite
-        );
-    }
+    confidence_score:
+      confidenceScore,
 
+    verification_status:
+      verificationStatus,
 
-    const businessId =
-      business.business_id;
-
-
-    // =================================================
-    // 3. DETERMINE VERIFICATION EVIDENCE
-    // =================================================
-
-    const websiteVerified =
-      Boolean(
-        result?.reachable &&
-        (
-          result?.finalUrl ||
-          result?.website ||
-          normalizedWebsite
-        )
-      );
-
-
-    const phoneVerified =
-      Boolean(
-        result?.phoneFound
-      );
-
-
-    const emailVerified =
-      Boolean(
-        result?.emailFound ||
-        (
-          Array.isArray(result?.emails) &&
-          result.emails.length > 0
-        )
-      );
-
-
-    // =================================================
-    // 4. DISCREPANCIES / NOTES
-    // =================================================
-
-    const discrepancies =
+    discrepancies:
       verificationStatus === "Verified"
         ? null
-        : buildDiscrepancyDetails(result);
+        : buildDiscrepancyDetails(
+            result
+          ),
 
-
-    const notes = [
+    notes: [
       `Business: ${businessName}`,
-      `Website: ${normalizedWebsite || "Not available"}`,
-      `Reachable: ${result?.reachable ? "Yes" : "No"}`,
-      `Screenshot: ${result?.screenshotAvailable ? "Available" : "Not available"}`,
-      `Pages crawled: ${result?.pagesCrawled ?? 0}`
-    ].join(" | ");
+      `Website: ${
+        normalizedWebsite ||
+        "Not available"
+      }`,
+      `Reachable: ${
+        result?.reachable
+          ? "Yes"
+          : "No"
+      }`,
+      `Screenshot: ${
+        result?.screenshotAvailable
+          ? "Available"
+          : "Not available"
+      }`,
+      `Pages crawled: ${
+        result?.pagesCrawled ?? 0
+      }`,
+    ].join(" | "),
 
+    verified_at:
+      new Date().toISOString(),
 
-    // =================================================
-    // 5. INSERT INTO NEW verification_results TABLE
-    // =================================================
+    result,
+  };
 
-    const verificationRecord =
-      await client.query(
-        `
-        INSERT INTO verification_results (
-          business_id,
-          website_verified,
-          email_verified,
-          phone_verified,
-          confidence_score,
-          verification_status,
-          discrepancies,
-          notes,
-          verified_at
-        )
+  verificationHistory.unshift(
+    verificationRecord
+  );
 
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          $7,
-          $8,
-          CURRENT_TIMESTAMP
-        )
-
-        RETURNING *
-        `,
-        [
-          businessId,
-          websiteVerified,
-          emailVerified,
-          phoneVerified,
-          confidenceScore,
-          verificationStatus,
-          discrepancies,
-          notes
-        ]
-      );
-
-
-    // =================================================
-    // 6. CREATE WORKFLOW TASK
-    // =================================================
-
-    await createWorkflowTask(
-      client,
-      businessId,
-      verificationStatus
-    );
-
-
-    // =================================================
-    // 7. ACTIVITY LOG
-    // =================================================
-
-    await client.query(
-      `
-      INSERT INTO activity_logs (
-        action_type,
-        description
-      )
-
-      VALUES (
-        $1,
-        $2
-      )
-      `,
-      [
-        "VERIFY",
-        `${businessName} verification completed with status ${verificationStatus} and confidence ${confidenceScore}.`
-      ]
-    );
-
-
-    // =================================================
-    // 8. COMMIT TRANSACTION
-    // =================================================
-
-    await client.query("COMMIT");
-
-
-    console.log(
-      `[TRACKING] Verification saved for ${businessName}`
-    );
-
-    console.log(
-      `[TRACKING] Business ID: ${businessId}`
-    );
-
-    console.log(
-      `[TRACKING] Verification status: ${verificationStatus}`
-    );
-
-    console.log(
-      `[TRACKING] Confidence: ${confidenceScore}`
-    );
-
-
-    return {
-      business_id:
-        businessId,
-
-      business,
-
-      verification_result:
-        verificationRecord.rows[0]
-    };
-
-
-  } catch (error) {
-
-    await client.query("ROLLBACK");
-
-
-    console.error(
-      "[TRACKING] Failed to save verification result:",
-      {
-        businessName,
-        website,
-        error:
-          error.message
-      }
-    );
-
-
-    throw error;
-
-
-  } finally {
-
-    client.release();
+  // Prevent unlimited memory growth.
+  if (
+    verificationHistory.length >
+    500
+  ) {
+    verificationHistory.length =
+      500;
   }
+
+  console.log(
+    `[TRACKING] Verification stored in memory for ${businessName}`
+  );
+
+  console.log(
+    `[TRACKING] Verification status: ${verificationStatus}`
+  );
+
+  console.log(
+    `[TRACKING] Confidence: ${confidenceScore}`
+  );
+
+  return {
+    business_id:
+      business.business_id,
+
+    business,
+
+    verification_result:
+      verificationRecord,
+
+    storage:
+      "memory",
+
+    persistent:
+      false,
+  };
+}
+
+
+// =====================================================
+// GET VERIFICATION HISTORY
+// =====================================================
+
+function getVerificationHistory(
+  limit = 100
+) {
+  const safeLimit =
+    Math.max(
+      1,
+      Math.min(
+        Number(limit) || 100,
+        500
+      )
+    );
+
+  return verificationHistory.slice(
+    0,
+    safeLimit
+  );
+}
+
+
+// =====================================================
+// FIND VERIFICATION BY ID
+// =====================================================
+
+function getVerificationById(
+  verificationId
+) {
+  const id =
+    Number(verificationId);
+
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+
+  return (
+    verificationHistory.find(
+      (record) =>
+        record.verification_id ===
+        id
+    ) || null
+  );
+}
+
+
+// =====================================================
+// CHECK WHETHER A BUSINESS WAS VERIFIED
+// =====================================================
+
+function hasBusinessBeenVerified({
+  businessName,
+  website,
+}) {
+  const normalizedName =
+    String(
+      businessName || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const normalizedWebsite =
+    normalizeWebsite(website);
+
+  return verificationHistory.some(
+    (record) => {
+      const recordName =
+        String(
+          record.business_name || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      return (
+        recordName ===
+          normalizedName ||
+        (
+          normalizedWebsite &&
+          record.website ===
+            normalizedWebsite
+        )
+      );
+    }
+  );
+}
+
+
+// =====================================================
+// CLEAR HISTORY
+// =====================================================
+
+function clearVerificationHistory() {
+  const removed =
+    verificationHistory.length;
+
+  verificationHistory.length = 0;
+
+  nextVerificationId = 1;
+  nextBusinessId = 1;
+
+  console.log(
+    `[TRACKING] Cleared ${removed} in-memory verification records`
+  );
+
+  return {
+    success: true,
+    removed,
+  };
+}
+
+
+// =====================================================
+// STORAGE STATUS
+// =====================================================
+
+function getStorageStatus() {
+  return {
+    type:
+      "memory",
+
+    persistent:
+      false,
+
+    count:
+      verificationHistory.length,
+
+    warning:
+      "Verification history resets whenever the backend restarts or redeploys.",
+  };
 }
 
 
@@ -558,5 +456,10 @@ async function saveVerificationResult({
 module.exports = {
   normalizeWebsite,
   mapVerificationStatus,
-  saveVerificationResult
+  saveVerificationResult,
+  getVerificationHistory,
+  getVerificationById,
+  hasBusinessBeenVerified,
+  clearVerificationHistory,
+  getStorageStatus,
 };
