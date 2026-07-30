@@ -593,7 +593,7 @@ listFilesBtn?.addEventListener(
 
 
 // =====================================================
-// LOAD ALL PROJECT DATA
+// LOAD ALL PROJECT DATA AND COPY BUSINESSES TO QUEUE
 // =====================================================
 
 loadAllBtn?.addEventListener(
@@ -614,7 +614,9 @@ loadAllBtn?.addEventListener(
     `;
 
     try {
-      const response =
+      // Step 1: Load the CSV and project documents into
+      // fileLoaderService memory.
+      const loadResponse =
         await fetch("/api/load/all", {
           method: "POST",
           headers: {
@@ -623,18 +625,76 @@ loadAllBtn?.addEventListener(
           }
         });
 
-      const data =
-        await readJsonResponse(response);
+      const loadData =
+        await readJsonResponse(loadResponse);
+
+      // Step 2: Read the businesses that were loaded from
+      // the project CSV.
+      const businessesResponse =
+        await fetch("/api/load/businesses");
+
+      const businessesData =
+        await readJsonResponse(
+          businessesResponse
+        );
+
+      const businesses =
+        Array.isArray(
+          businessesData.businesses
+        )
+          ? businessesData.businesses
+          : [];
+
+      if (!businesses.length) {
+        throw new Error(
+          "Project files loaded, but no valid businesses were found in the business dataset."
+        );
+      }
+
+      // Step 3: Copy those businesses into the verification
+      // router's in-memory queue.
+      const queueResponse =
+        await fetch(
+          "/api/verification/businesses/load",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json"
+            },
+            body: JSON.stringify({
+              businesses
+            })
+          }
+        );
+
+      const queueData =
+        await readJsonResponse(queueResponse);
+
+      const loadedCount =
+        Number(queueData.loaded) ||
+        businesses.length;
 
       showResult(
         "Project Data Loaded",
-        data
+        {
+          success: true,
+          message:
+            `${loadedCount} businesses loaded into the verification queue.`,
+          projectImport: loadData,
+          queue: queueData
+        }
       );
 
       log(
-        data.message ||
-        "All project data loaded successfully."
+        `${loadedCount} businesses loaded into the demo verification queue.`
       );
+
+      if (queueData.skipped) {
+        log(
+          `${queueData.skipped} invalid business record(s) were skipped.`
+        );
+      }
 
       await checkSystemStatus();
     } catch (error) {
