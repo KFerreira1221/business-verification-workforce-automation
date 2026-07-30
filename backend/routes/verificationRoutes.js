@@ -1,55 +1,235 @@
 const express = require("express");
+
 const router = express.Router();
 
-const pool = require("../services/db");
-const { verifyBusiness } = require("../services/crawlerService");
+const {
+  verifyBusiness,
+} = require("../services/crawlerService");
 
 const {
   normalizeWebsite,
   saveVerificationResult,
-} = require("../services/verificationTrackingService");
+  getVerificationHistory,
+  getVerificationById,
+  hasBusinessBeenVerified,
+  clearVerificationHistory,
+  getStorageStatus,
+} = require(
+  "../services/verificationTrackingService"
+);
 
 
 // =====================================================
-// HELPER: VERIFY + SAVE ONE BUSINESS
+// TEMPORARY IN-MEMORY BUSINESS QUEUE
+//
+// PostgreSQL is no longer used.
+//
+// Businesses can be sent from the frontend using:
+//
+// POST /api/verification/businesses/load
+//
+// Body:
+// {
+//   "businesses": [
+//     {
+//       "businessName": "Microsoft",
+//       "website": "https://microsoft.com"
+//     }
+//   ]
+// }
 // =====================================================
 
-async function verifyAndSaveBusiness(business) {
-  const businessName = business.business_name;
-  const website = normalizeWebsite(business.website);
+let pendingBusinesses = [];
+
+let nextBusinessId = 1;
+
+
+// =====================================================
+// NORMALIZE BUSINESS OBJECT
+// =====================================================
+
+function normalizeBusiness(
+  business,
+  index = 0
+) {
+  if (!business || typeof business !== "object") {
+    return null;
+  }
+
+  const businessName =
+    String(
+      business.businessName ||
+      business.business_name ||
+      business.name ||
+      ""
+    ).trim();
+
+  const website =
+    normalizeWebsite(
+      business.website ||
+      business.url ||
+      business.businessWebsite ||
+      business.business_website
+    );
+
+  const businessId =
+    business.business_id ||
+    business.businessId ||
+    nextBusinessId++;
+
+  return {
+    business_id:
+      businessId,
+
+    business_name:
+      businessName,
+
+    website,
+
+    phone_number:
+      business.phone_number ||
+      business.phoneNumber ||
+      business.phone ||
+      null,
+
+    email:
+      business.email ||
+      null,
+
+    industry:
+      business.industry ||
+      null,
+
+    business_status:
+      business.business_status ||
+      business.businessStatus ||
+      "Pending",
+
+    queue_position:
+      index + 1,
+  };
+}
+
+
+// =====================================================
+// REMOVE DUPLICATE BUSINESSES
+// =====================================================
+
+function removeDuplicateBusinesses(
+  businesses
+) {
+  const seen = new Set();
+
+  return businesses.filter(
+    (business) => {
+      const name =
+        String(
+          business.business_name || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const website =
+        String(
+          business.website || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const key =
+        `${name}|${website}`;
+
+      if (!name && !website) {
+        return false;
+      }
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+
+      return true;
+    }
+  );
+}
+
+
+// =====================================================
+// VERIFY AND SAVE ONE BUSINESS
+// =====================================================
+
+async function verifyAndSaveBusiness(
+  business
+) {
+  const businessName =
+    String(
+      business.business_name ||
+      business.businessName ||
+      ""
+    ).trim();
+
+  const website =
+    normalizeWebsite(
+      business.website
+    );
 
   if (!businessName) {
-    throw new Error("Business name is missing");
+    throw new Error(
+      "Business name is missing"
+    );
   }
 
   if (!website) {
-    throw new Error("Business website is missing");
+    throw new Error(
+      "Business website is missing"
+    );
   }
 
-  console.log("\n========================================");
-  console.log("[VERIFY]");
-  console.log(`[VERIFY] Business: ${businessName}`);
-  console.log(`[VERIFY] Website: ${website}`);
-  console.log("========================================\n");
-
-  // Run Chromium / crawler
-  const result = await verifyBusiness(
-    businessName,
-    website
+  console.log(
+    "\n========================================"
   );
 
-  // Save result to PostgreSQL
-  const saved = await saveVerificationResult({
-    businessName,
-    website,
-    result,
-  });
+  console.log(
+    "[VERIFY] Starting verification"
+  );
+
+  console.log(
+    `[VERIFY] Business: ${businessName}`
+  );
+
+  console.log(
+    `[VERIFY] Website: ${website}`
+  );
+
+  console.log(
+    "========================================\n"
+  );
+
+  const result =
+    await verifyBusiness(
+      businessName,
+      website
+    );
+
+  const saved =
+    await saveVerificationResult({
+      businessName,
+      website,
+      result,
+    });
 
   return {
-    business_id: business.business_id,
+    business_id:
+      business.business_id ||
+      saved.business_id,
+
     businessName,
+
     website,
+
     result,
+
     saved,
   };
 }
@@ -58,48 +238,59 @@ async function verifyAndSaveBusiness(business) {
 // =====================================================
 // LIVE CRAWLER TEST
 //
-// This stays here permanently as a diagnostic.
-// It proves Chromium + screenshot + extraction work.
-//
-// DOES NOT SAVE MICROSOFT TO DATABASE.
+// POST /api/verification/run-test
 // =====================================================
 
-router.post("/run-test", async (req, res) => {
-  try {
-    const businessName = "Microsoft";
-    const website = "https://www.microsoft.com";
+router.post(
+  "/run-test",
+  async (req, res) => {
+    try {
+      const businessName =
+        "Microsoft";
 
-    console.log("\n========================================");
-    console.log("[CRAWLER TEST] Starting live test");
-    console.log(`[CRAWLER TEST] Business: ${businessName}`);
-    console.log(`[CRAWLER TEST] Website: ${website}`);
-    console.log("========================================\n");
+      const website =
+        "https://www.microsoft.com";
 
-    const result = await verifyBusiness(
-      businessName,
-      website
-    );
+      console.log(
+        "[CRAWLER TEST] Starting Microsoft test"
+      );
 
-    return res.json({
-      success: true,
-      testMode: true,
-      message:
-        "Live Chromium crawler test completed.",
-      result,
-    });
+      const result =
+        await verifyBusiness(
+          businessName,
+          website
+        );
 
-  } catch (error) {
-    console.error(
-      "[CRAWLER TEST] Error:",
-      error
-    );
+      return res.json({
+        success: true,
 
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+        testMode: true,
+
+        storage:
+          "No PostgreSQL",
+
+        message:
+          "Live Chromium crawler test completed.",
+
+        result,
+      });
+    } catch (error) {
+      console.error(
+        "[CRAWLER TEST] Error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            error.message,
+        });
+    }
   }
-});
+);
 
 
 // =====================================================
@@ -109,369 +300,553 @@ router.post("/run-test", async (req, res) => {
 //
 // Body:
 // {
-//   "businessName": "Example",
-//   "website": "https://example.com"
+//   "businessName": "Microsoft",
+//   "website": "https://microsoft.com"
 // }
 // =====================================================
 
-router.post("/run", async (req, res) => {
-  try {
-    const {
-      businessName,
-      website,
-    } = req.body;
+router.post(
+  "/run",
+  async (req, res) => {
+    try {
+      const businessName =
+        String(
+          req.body?.businessName ||
+          req.body?.business_name ||
+          ""
+        ).trim();
 
-    if (!businessName || !website) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "businessName and website are required",
-      });
-    }
+      const website =
+        normalizeWebsite(
+          req.body?.website
+        );
 
-    const normalizedWebsite =
-      normalizeWebsite(website);
+      if (!businessName) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-    console.log("\n========================================");
-    console.log("[VERIFY] Manual verification");
-    console.log(`[VERIFY] Business: ${businessName}`);
-    console.log(
-      `[VERIFY] Website: ${normalizedWebsite}`
-    );
-    console.log("========================================\n");
+            error:
+              "businessName is required",
+          });
+      }
 
-    const result = await verifyBusiness(
-      businessName,
-      normalizedWebsite
-    );
+      if (!website) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-    const saved = await saveVerificationResult({
-      businessName,
-      website: normalizedWebsite,
-      result,
-    });
+            error:
+              "website is required",
+          });
+      }
 
-    return res.json({
-      success: true,
-      result,
-      saved,
-    });
+      const business =
+        normalizeBusiness({
+          businessName,
+          website,
+        });
 
-  } catch (error) {
-    console.error(
-      "[VERIFY] Manual verification error:",
-      error
-    );
+      const verification =
+        await verifyAndSaveBusiness(
+          business
+        );
 
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-
-// =====================================================
-// GET NEXT BUSINESS THAT NEEDS VERIFICATION
-//
-// GET /api/verification/next
-//
-// IMPORTANT:
-// Reads PostgreSQL, NOT BusinessDatasets.csv
-// =====================================================
-
-router.get("/next", async (req, res) => {
-  try {
-    const result = await pool.query(
-      `
-      SELECT
-        b.business_id,
-        b.business_name,
-        b.website,
-        b.phone_number,
-        b.email,
-        b.industry,
-        b.business_status
-
-      FROM businesses b
-
-      WHERE
-        b.website IS NOT NULL
-
-        AND TRIM(b.website) <> ''
-
-        AND NOT EXISTS (
-          SELECT 1
-          FROM verification_results vr
-          WHERE vr.business_id = b.business_id
-        )
-
-      ORDER BY b.business_id ASC
-
-      LIMIT 1
-      `
-    );
-
-    if (result.rows.length === 0) {
       return res.json({
         success: true,
-        complete: true,
-        message:
-          "No unverified businesses remain.",
-        business: null,
+
+        source:
+          "Frontend request",
+
+        storage:
+          "Server memory",
+
+        persistent:
+          false,
+
+        business,
+
+        result:
+          verification.result,
+
+        saved:
+          verification.saved,
       });
+    } catch (error) {
+      console.error(
+        "[VERIFY] Manual verification error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            error.message,
+        });
     }
-
-    return res.json({
-      success: true,
-      complete: false,
-      business: result.rows[0],
-    });
-
-  } catch (error) {
-    console.error(
-      "[NEXT] Failed to get next business:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
   }
-});
+);
 
 
 // =====================================================
-// VERIFY NEXT LOADED BUSINESS
+// LOAD BUSINESSES INTO MEMORY
 //
-// POST /api/verification/run-next
+// POST /api/verification/businesses/load
 //
-// THIS IS THE IMPORTANT BRIDGE:
-//
-// Load All Project Data
-//        ↓
-// PostgreSQL
-//        ↓
-// run-next
-//        ↓
-// Chromium
-//        ↓
-// verification_results
+// Body:
+// {
+//   "businesses": [
+//     {
+//       "businessName": "Microsoft",
+//       "website": "https://microsoft.com"
+//     }
+//   ]
+// }
 // =====================================================
 
-router.post("/run-next", async (req, res) => {
-  try {
-    const databaseResult = await pool.query(
-      `
-      SELECT
-        b.business_id,
-        b.business_name,
-        b.website,
-        b.phone_number,
-        b.email,
-        b.industry,
-        b.business_status
+router.post(
+  "/businesses/load",
+  async (req, res) => {
+    try {
+      const businesses =
+        req.body?.businesses;
 
-      FROM businesses b
+      if (!Array.isArray(businesses)) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-      WHERE
-        b.website IS NOT NULL
+            error:
+              "businesses must be an array",
+          });
+      }
 
-        AND TRIM(b.website) <> ''
+      const normalized =
+        businesses
+          .map(
+            (
+              business,
+              index
+            ) =>
+              normalizeBusiness(
+                business,
+                index
+              )
+          )
+          .filter(Boolean);
 
-        AND NOT EXISTS (
-          SELECT 1
-          FROM verification_results vr
-          WHERE vr.business_id = b.business_id
-        )
+      const validBusinesses =
+        normalized.filter(
+          (business) =>
+            business.business_name &&
+            business.website
+        );
 
-      ORDER BY b.business_id ASC
+      const invalidBusinesses =
+        normalized.filter(
+          (business) =>
+            !business.business_name ||
+            !business.website
+        );
 
-      LIMIT 1
-      `
-    );
+      pendingBusinesses =
+        removeDuplicateBusinesses(
+          validBusinesses
+        );
 
-    if (databaseResult.rows.length === 0) {
       return res.json({
         success: true,
-        complete: true,
+
+        storage:
+          "Server memory",
+
+        persistent:
+          false,
+
         message:
-          "No unverified businesses remain.",
+          `${pendingBusinesses.length} businesses loaded into the verification queue.`,
+
+        loaded:
+          pendingBusinesses.length,
+
+        skipped:
+          invalidBusinesses.length,
+
+        businesses:
+          pendingBusinesses,
+
+        invalidBusinesses,
       });
+    } catch (error) {
+      console.error(
+        "[BUSINESS LOAD] Error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            error.message,
+        });
     }
+  }
+);
 
-    const business =
-      databaseResult.rows[0];
 
-    console.log("\n========================================");
-    console.log("[RUN NEXT]");
-    console.log(
-      `[RUN NEXT] Database business ID: ${business.business_id}`
-    );
-    console.log(
-      `[RUN NEXT] Business: ${business.business_name}`
-    );
-    console.log(
-      `[RUN NEXT] Website: ${business.website}`
-    );
-    console.log("========================================\n");
+// =====================================================
+// ADD ONE BUSINESS TO QUEUE
+//
+// POST /api/verification/businesses/add
+// =====================================================
 
-    const verification =
-      await verifyAndSaveBusiness(
+router.post(
+  "/businesses/add",
+  async (req, res) => {
+    try {
+      const business =
+        normalizeBusiness(
+          req.body
+        );
+
+      if (!business?.business_name) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            error:
+              "Business name is required",
+          });
+      }
+
+      if (!business.website) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            error:
+              "Business website is required",
+          });
+      }
+
+      const duplicate =
+        pendingBusinesses.some(
+          (existing) => {
+            const sameName =
+              existing.business_name
+                .toLowerCase() ===
+              business.business_name
+                .toLowerCase();
+
+            const sameWebsite =
+              existing.website ===
+              business.website;
+
+            return (
+              sameName ||
+              sameWebsite
+            );
+          }
+        );
+
+      if (duplicate) {
+        return res
+          .status(409)
+          .json({
+            success: false,
+
+            error:
+              "This business is already in the queue.",
+          });
+      }
+
+      pendingBusinesses.push(
         business
       );
 
-    return res.json({
-      success: true,
+      return res
+        .status(201)
+        .json({
+          success: true,
 
-      source:
-        "PostgreSQL businesses table",
+          message:
+            "Business added to verification queue.",
 
-      message:
-        "Loaded business verified successfully.",
+          business,
 
-      business,
+          queueCount:
+            pendingBusinesses.length,
+        });
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          success: false,
 
-      result:
-        verification.result,
-
-      saved:
-        verification.saved,
-    });
-
-  } catch (error) {
-    console.error(
-      "[RUN NEXT] Verification failed:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+          error:
+            error.message,
+        });
+    }
   }
-});
+);
 
 
 // =====================================================
-// VERIFY ALL LOADED BUSINESSES
+// GET NEXT BUSINESS
+//
+// GET /api/verification/next
+// =====================================================
+
+router.get(
+  "/next",
+  async (req, res) => {
+    try {
+      const nextBusiness =
+        pendingBusinesses.find(
+          (business) =>
+            !hasBusinessBeenVerified({
+              businessName:
+                business.business_name,
+
+              website:
+                business.website,
+            })
+        );
+
+      if (!nextBusiness) {
+        return res.json({
+          success: true,
+
+          complete: true,
+
+          message:
+            "No unverified businesses remain in memory.",
+
+          business:
+            null,
+        });
+      }
+
+      return res.json({
+        success: true,
+
+        complete: false,
+
+        source:
+          "In-memory queue",
+
+        business:
+          nextBusiness,
+      });
+    } catch (error) {
+      console.error(
+        "[NEXT] Error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            error.message,
+        });
+    }
+  }
+);
+
+
+// =====================================================
+// VERIFY NEXT BUSINESS
+//
+// POST /api/verification/run-next
+// =====================================================
+
+router.post(
+  "/run-next",
+  async (req, res) => {
+    try {
+      const businessIndex =
+        pendingBusinesses.findIndex(
+          (business) =>
+            !hasBusinessBeenVerified({
+              businessName:
+                business.business_name,
+
+              website:
+                business.website,
+            })
+        );
+
+      if (businessIndex === -1) {
+        return res.json({
+          success: true,
+
+          complete: true,
+
+          message:
+            "No unverified businesses remain.",
+        });
+      }
+
+      const business =
+        pendingBusinesses[
+          businessIndex
+        ];
+
+      const verification =
+        await verifyAndSaveBusiness(
+          business
+        );
+
+      pendingBusinesses.splice(
+        businessIndex,
+        1
+      );
+
+      return res.json({
+        success: true,
+
+        complete: false,
+
+        source:
+          "In-memory queue",
+
+        message:
+          "Next business verified successfully.",
+
+        business,
+
+        result:
+          verification.result,
+
+        saved:
+          verification.saved,
+
+        remaining:
+          pendingBusinesses.length,
+      });
+    } catch (error) {
+      console.error(
+        "[RUN NEXT] Error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            error.message,
+        });
+    }
+  }
+);
+
+
+// =====================================================
+// VERIFY ALL BUSINESSES
 //
 // POST /api/verification/run-loaded
 //
-// IMPORTANT:
-// This reads from PostgreSQL.
+// This route can use businesses already loaded into
+// memory, or accept businesses directly in the request.
 //
-// It DOES NOT read BusinessDatasets.csv directly.
+// Optional body:
+// {
+//   "businesses": [...]
+// }
 // =====================================================
 
 router.post(
   "/run-loaded",
   async (req, res) => {
-
     try {
-
-      // -----------------------------------------------
-      // GET BUSINESSES THAT HAVE NOT BEEN VERIFIED
-      // -----------------------------------------------
-
-      const databaseResult =
-        await pool.query(
-          `
-          SELECT
-            b.business_id,
-            b.business_name,
-            b.website,
-            b.phone_number,
-            b.email,
-            b.industry,
-            b.business_status
-
-          FROM businesses b
-
-          WHERE NOT EXISTS (
-            SELECT 1
-            FROM verification_results vr
-            WHERE vr.business_id = b.business_id
-          )
-
-          ORDER BY b.business_id ASC
-          `
-        );
-
+      if (
+        Array.isArray(
+          req.body?.businesses
+        )
+      ) {
+        pendingBusinesses =
+          removeDuplicateBusinesses(
+            req.body.businesses
+              .map(
+                (
+                  business,
+                  index
+                ) =>
+                  normalizeBusiness(
+                    business,
+                    index
+                  )
+              )
+              .filter(
+                (business) =>
+                  business &&
+                  business.business_name &&
+                  business.website
+              )
+          );
+      }
 
       const businesses =
-        databaseResult.rows;
-
+        [...pendingBusinesses];
 
       if (!businesses.length) {
         return res.json({
           success: true,
+
           complete: true,
+
           total: 0,
+
           completed: 0,
+
           skipped: 0,
+
           failed: 0,
+
           message:
-            "No unverified businesses remain.",
+            "No businesses are loaded into memory.",
+
           results: [],
         });
       }
 
-
-      console.log("\n========================================");
       console.log(
-        "[DATABASE BATCH] Starting verification"
+        `[MEMORY BATCH] Starting ${businesses.length} verifications`
       );
-      console.log(
-        `[DATABASE BATCH] Records: ${businesses.length}`
-      );
-      console.log("========================================\n");
-
 
       const results = [];
-
-
-      // -----------------------------------------------
-      // PROCESS EACH BUSINESS
-      // -----------------------------------------------
 
       for (
         let index = 0;
         index < businesses.length;
         index++
       ) {
-
         const business =
           businesses[index];
 
-
-        console.log("\n----------------------------------------");
-        console.log(
-          `[DATABASE BATCH] ${index + 1} / ${businesses.length}`
-        );
-        console.log(
-          `[DATABASE BATCH] ${business.business_name}`
-        );
-        console.log(
-          `[DATABASE BATCH] ${business.website || "NO WEBSITE"}`
-        );
-        console.log("----------------------------------------");
-
-
-        // ---------------------------------------------
-        // MISSING BUSINESS NAME
-        // ---------------------------------------------
-
         if (!business.business_name) {
-
           results.push({
-            business_id:
-              business.business_id,
-
             success: false,
 
-            status: "skipped",
+            status:
+              "skipped",
+
+            business,
 
             error:
               "Business name is missing",
@@ -480,53 +855,30 @@ router.post(
           continue;
         }
 
-
-        // ---------------------------------------------
-        // MISSING WEBSITE
-        //
-        // For now we skip it.
-        // Later SearXNG will discover the website.
-        // ---------------------------------------------
-
         if (!business.website) {
-
-          console.log(
-            `[DATABASE BATCH] SKIPPED: ${business.business_name} has no website`
-          );
-
           results.push({
-            business_id:
-              business.business_id,
-
-            businessName:
-              business.business_name,
-
             success: false,
 
-            status: "skipped",
+            status:
+              "skipped",
+
+            business,
 
             reason:
               "missing_website",
 
             error:
-              "No website currently stored for this business",
+              "Business website is missing",
           });
 
           continue;
         }
 
-
-        // ---------------------------------------------
-        // VERIFY
-        // ---------------------------------------------
-
         try {
-
           const verification =
             await verifyAndSaveBusiness(
               business
             );
-
 
           results.push({
             success: true,
@@ -536,27 +888,13 @@ router.post(
 
             ...verification,
           });
-
-
-          console.log(
-            `[DATABASE BATCH] COMPLETE: ${business.business_name}`
-          );
-
-
         } catch (businessError) {
-
-          console.error(
-            `[DATABASE BATCH] FAILED: ${business.business_name}`
-          );
-
-          console.error(
-            `[DATABASE BATCH] ${businessError.message}`
-          );
-
-
-          // One failed company does NOT stop batch.
-
           results.push({
+            success: false,
+
+            status:
+              "failed",
+
             business_id:
               business.business_id,
 
@@ -566,21 +904,11 @@ router.post(
             website:
               business.website,
 
-            success: false,
-
-            status:
-              "failed",
-
             error:
               businessError.message,
           });
         }
       }
-
-
-      // -----------------------------------------------
-      // SUMMARY
-      // -----------------------------------------------
 
       const completed =
         results.filter(
@@ -589,14 +917,12 @@ router.post(
             "completed"
         ).length;
 
-
       const skipped =
         results.filter(
           (item) =>
             item.status ===
             "skipped"
         ).length;
-
 
       const failed =
         results.filter(
@@ -605,31 +931,19 @@ router.post(
             "failed"
         ).length;
 
-
-      console.log("\n========================================");
-      console.log(
-        "[DATABASE BATCH] COMPLETE"
-      );
-      console.log(
-        `[DATABASE BATCH] Total: ${businesses.length}`
-      );
-      console.log(
-        `[DATABASE BATCH] Completed: ${completed}`
-      );
-      console.log(
-        `[DATABASE BATCH] Skipped: ${skipped}`
-      );
-      console.log(
-        `[DATABASE BATCH] Failed: ${failed}`
-      );
-      console.log("========================================\n");
-
+      pendingBusinesses = [];
 
       return res.json({
         success: true,
 
         source:
-          "PostgreSQL businesses table",
+          "In-memory business queue",
+
+        storage:
+          "Server memory",
+
+        persistent:
+          false,
 
         total:
           businesses.length,
@@ -642,89 +956,148 @@ router.post(
 
         results,
       });
-
-
     } catch (error) {
-
       console.error(
-        "[DATABASE BATCH] Fatal error:",
+        "[MEMORY BATCH] Fatal error:",
         error
       );
 
+      return res
+        .status(500)
+        .json({
+          success: false,
 
-      return res.status(500).json({
-        success: false,
-        error:
-          error.message,
-      });
+          error:
+            error.message,
+        });
     }
   }
 );
 
 
 // =====================================================
-// LIST BUSINESSES WAITING FOR VERIFICATION
+// LIST PENDING BUSINESSES
 //
 // GET /api/verification/pending
 // =====================================================
 
-router.get("/pending", async (req, res) => {
-  try {
+router.get(
+  "/pending",
+  async (req, res) => {
+    try {
+      return res.json({
+        success: true,
 
-    const result =
-      await pool.query(
-        `
-        SELECT
-          b.business_id,
-          b.business_name,
-          b.website,
-          b.phone_number,
-          b.email,
-          b.industry,
-          b.business_status
+        source:
+          "In-memory queue",
 
-        FROM businesses b
+        count:
+          pendingBusinesses.length,
 
-        WHERE NOT EXISTS (
-          SELECT 1
+        businesses:
+          pendingBusinesses,
+      });
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          success: false,
 
-          FROM verification_results vr
+          error:
+            error.message,
+        });
+    }
+  }
+);
 
-          WHERE
-            vr.business_id =
-            b.business_id
-        )
 
-        ORDER BY
-          b.business_id ASC
-        `
-      );
+// =====================================================
+// REMOVE ONE PENDING BUSINESS
+//
+// DELETE /api/verification/pending/:businessId
+// =====================================================
 
+router.delete(
+  "/pending/:businessId",
+  async (req, res) => {
+    try {
+      const businessId =
+        String(
+          req.params.businessId
+        );
+
+      const originalCount =
+        pendingBusinesses.length;
+
+      pendingBusinesses =
+        pendingBusinesses.filter(
+          (business) =>
+            String(
+              business.business_id
+            ) !== businessId
+        );
+
+      const removed =
+        originalCount -
+        pendingBusinesses.length;
+
+      if (!removed) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            error:
+              "Business was not found in the pending queue.",
+          });
+      }
+
+      return res.json({
+        success: true,
+
+        removed,
+
+        remaining:
+          pendingBusinesses.length,
+      });
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            error.message,
+        });
+    }
+  }
+);
+
+
+// =====================================================
+// CLEAR PENDING BUSINESS QUEUE
+//
+// DELETE /api/verification/pending
+// =====================================================
+
+router.delete(
+  "/pending",
+  async (req, res) => {
+    const removed =
+      pendingBusinesses.length;
+
+    pendingBusinesses = [];
 
     return res.json({
       success: true,
-      count:
-        result.rows.length,
-      businesses:
-        result.rows,
-    });
 
+      removed,
 
-  } catch (error) {
-
-    console.error(
-      "[PENDING] Error:",
-      error
-    );
-
-
-    return res.status(500).json({
-      success: false,
-      error:
-        error.message,
+      message:
+        "Pending business queue cleared.",
     });
   }
-});
+);
 
 
 // =====================================================
@@ -733,71 +1106,161 @@ router.get("/pending", async (req, res) => {
 // GET /api/verification/history
 // =====================================================
 
-router.get("/history", async (req, res) => {
-  try {
+router.get(
+  "/history",
+  async (req, res) => {
+    try {
+      const limit =
+        req.query?.limit;
 
-    const result =
-      await pool.query(
-        `
-        SELECT
-          vr.verification_id,
+      const results =
+        getVerificationHistory(
+          limit
+        );
 
-          b.business_id,
-          b.business_name,
-          b.website,
+      return res.json({
+        success: true,
 
-          vr.website_verified,
-          vr.email_verified,
-          vr.phone_verified,
+        source:
+          "Server memory",
 
-          vr.verification_status,
-          vr.confidence_score,
+        persistent:
+          false,
 
-          vr.discrepancies,
-          vr.notes,
+        count:
+          results.length,
 
-          vr.verified_at
-
-        FROM verification_results vr
-
-        JOIN businesses b
-          ON vr.business_id =
-             b.business_id
-
-        ORDER BY
-          vr.verified_at DESC
-
-        LIMIT 100
-        `
+        results,
+      });
+    } catch (error) {
+      console.error(
+        "[HISTORY] Error:",
+        error
       );
 
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          error:
+            "Failed to load verification history",
+
+          detail:
+            error.message,
+        });
+    }
+  }
+);
+
+
+// =====================================================
+// GET ONE VERIFICATION RESULT
+//
+// GET /api/verification/history/:verificationId
+// =====================================================
+
+router.get(
+  "/history/:verificationId",
+  async (req, res) => {
+    const result =
+      getVerificationById(
+        req.params.verificationId
+      );
+
+    if (!result) {
+      return res
+        .status(404)
+        .json({
+          success: false,
+
+          error:
+            "Verification result not found",
+        });
+    }
 
     return res.json({
       success: true,
-      count:
-        result.rows.length,
-      results:
-        result.rows,
-    });
 
-
-  } catch (error) {
-
-    console.error(
-      "[HISTORY] Error:",
-      error
-    );
-
-
-    return res.status(500).json({
-      success: false,
-      error:
-        "Failed to load verification history",
-      detail:
-        error.message,
+      result,
     });
   }
-});
+);
+
+
+// =====================================================
+// CLEAR VERIFICATION HISTORY
+//
+// DELETE /api/verification/history
+// =====================================================
+
+router.delete(
+  "/history",
+  async (req, res) => {
+    const result =
+      clearVerificationHistory();
+
+    return res.json(result);
+  }
+);
+
+
+// =====================================================
+// STORAGE STATUS
+//
+// GET /api/verification/storage
+// =====================================================
+
+router.get(
+  "/storage",
+  async (req, res) => {
+    return res.json({
+      success: true,
+
+      pendingBusinesses:
+        pendingBusinesses.length,
+
+      verificationStorage:
+        getStorageStatus(),
+    });
+  }
+);
+
+
+// =====================================================
+// HEALTH CHECK
+//
+// GET /api/verification/health
+// =====================================================
+
+router.get(
+  "/health",
+  async (req, res) => {
+    return res.json({
+      success: true,
+
+      service:
+        "Verification Engine",
+
+      database:
+        "disabled",
+
+      storage:
+        "memory",
+
+      pendingBusinesses:
+        pendingBusinesses.length,
+
+      verificationResults:
+        getVerificationHistory(
+          500
+        ).length,
+
+      timestamp:
+        new Date().toISOString(),
+    });
+  }
+);
 
 
 module.exports = router;
