@@ -27,8 +27,21 @@ export default function Verification() {
         getBusinesses(),
       ]);
 
-      setHistory(Array.isArray(hist) ? hist : hist?.history || []);
-      setBusinesses(Array.isArray(biz) ? biz : biz?.businesses || []);
+      setHistory(
+        Array.isArray(hist)
+          ? hist
+          : hist?.results ||
+            hist?.history ||
+            []
+      );
+
+      setBusinesses(
+        Array.isArray(biz)
+          ? biz
+          : biz?.businesses ||
+            biz?.results ||
+            []
+      );
     } catch (err) {
       console.error("Failed to load verification data:", err);
 
@@ -70,64 +83,74 @@ export default function Verification() {
 
       console.log("Verification API response:", result);
 
-      /*
-       * The backend may return the saved verification data in one of these:
-       *
-       * result.verification
-       * result.saved.verification_result
-       * result.result
-       *
-       * This normalizes the response so the frontend can display it.
-       */
-      const verification =
+      const crawlerResult =
+        result?.result ||
         result?.verification ||
+        {};
+
+      const savedResult =
         result?.saved?.verification_result ||
         result?.saved?.verificationResult ||
-        result?.result ||
         {};
 
       const confidenceScore = Number(
-        verification.confidence_score ??
-          verification.confidenceScore ??
+        savedResult.confidence_score ??
+          savedResult.confidenceScore ??
+          savedResult.confidence ??
+          crawlerResult.confidence_score ??
+          crawlerResult.confidenceScore ??
+          crawlerResult.confidence ??
           result?.confidence_score ??
           result?.confidenceScore ??
+          result?.confidence ??
           0
       );
 
       const businessId =
         result?.saved?.business_id ||
         result?.saved?.businessId ||
+        savedResult.business_id ||
+        savedResult.businessId ||
         result?.business_id ||
         result?.businessId ||
         business.business_id;
+
+      const websiteVerified =
+        savedResult.website_verified ??
+        savedResult.websiteVerified ??
+        crawlerResult.website_verified ??
+        crawlerResult.websiteVerified ??
+        crawlerResult.reachable;
+
+      const phoneVerified =
+        savedResult.phone_verified ??
+        savedResult.phoneVerified ??
+        crawlerResult.phone_verified ??
+        crawlerResult.phoneVerified ??
+        crawlerResult.phone_found ??
+        crawlerResult.phoneFound;
+
+      const emailVerified =
+        savedResult.email_verified ??
+        savedResult.emailVerified ??
+        crawlerResult.email_verified ??
+        crawlerResult.emailVerified ??
+        crawlerResult.email_found ??
+        crawlerResult.emailFound;
 
       setSelected({
         businessId,
         business: business.business_name,
 
-        website: isVerified(
-          verification.website_verified ??
-            verification.websiteVerified ??
-            verification.reachable
-        )
+        website: isVerified(websiteVerified)
           ? "Verified"
           : "Not Verified",
 
-        phone: isVerified(
-          verification.phone_verified ??
-            verification.phoneVerified ??
-            verification.phone_found ??
-            verification.phoneFound
-        )
+        phone: isVerified(phoneVerified)
           ? "Verified"
           : "Not Verified",
 
-        email: isVerified(
-          verification.email_verified ??
-            verification.emailVerified ??
-            verification.email_found ??
-            verification.emailFound
-        )
+        email: isVerified(emailVerified)
           ? "Verified"
           : "Not Verified",
 
@@ -141,7 +164,9 @@ export default function Verification() {
               : "REJECT",
       });
 
-      setMessage(`✅ Verification complete for ${business.business_name}`);
+      setMessage(
+        `✅ Verification complete for ${business.business_name}`
+      );
 
       await loadData();
     } catch (err) {
@@ -254,10 +279,20 @@ export default function Verification() {
 
                     <button
                       className="btn-sm btn-edit"
-                      disabled={runningBusinessId !== null || actioning}
-                      onClick={() => handleRunVerification(business)}
+                      disabled={
+                        runningBusinessId !== null ||
+                        actioning ||
+                        !business.website
+                      }
+                      onClick={() =>
+                        handleRunVerification(business)
+                      }
                     >
-                      {isRunning ? "Running..." : "Verify"}
+                      {isRunning
+                        ? "Running..."
+                        : business.website
+                          ? "Verify"
+                          : "No Website"}
                     </button>
                   </li>
                 );
@@ -275,9 +310,13 @@ export default function Verification() {
               disabled={actioning}
             />
           ) : runningBusinessId !== null ? (
-            <p>Searching and verifying business information...</p>
+            <p>
+              Searching and verifying business information...
+            </p>
           ) : (
-            <p>Select a business and click Verify to see results.</p>
+            <p>
+              Select a business and click Verify to see results.
+            </p>
           )}
         </div>
       </div>
@@ -303,10 +342,12 @@ export default function Verification() {
                 const status =
                   verification.verification_status ||
                   verification.status ||
+                  verification.decision ||
                   "Pending";
 
                 const confidence = Number(
                   verification.confidence_score ??
+                    verification.confidenceScore ??
                     verification.confidence ??
                     0
                 );
@@ -315,6 +356,15 @@ export default function Verification() {
                   verification.verified_at ||
                   verification.created_at ||
                   verification.updated_at;
+
+                const approved =
+                  status === "Verified" ||
+                  status === "Approved" ||
+                  status === "APPROVE";
+
+                const rejected =
+                  status === "Rejected" ||
+                  status === "REJECT";
 
                 return (
                   <tr
@@ -327,16 +377,18 @@ export default function Verification() {
                     <td>
                       {verification.business_name ||
                         verification.business ||
+                        verification.company_name ||
                         "Unknown Business"}
                     </td>
 
                     <td>
                       <span
                         className={`badge ${
-                          status === "Verified" ||
-                          status === "Approved"
+                          approved
                             ? "badge-green"
-                            : "badge-yellow"
+                            : rejected
+                              ? "badge-red"
+                              : "badge-yellow"
                         }`}
                       >
                         {status}
@@ -347,7 +399,9 @@ export default function Verification() {
 
                     <td>
                       {verifiedDate
-                        ? new Date(verifiedDate).toLocaleDateString()
+                        ? new Date(
+                            verifiedDate
+                          ).toLocaleDateString()
                         : "Not available"}
                     </td>
                   </tr>
