@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import VerificationCard from "../components/VerificationCard";
 import {
   getVerificationHistory,
-  getBusinesses,
-  runVerification,
-  approveBusinessVerification,
-  rejectBusinessVerification,
+  getDatasetBusinesses,
 } from "../api";
+
+// =======================================================
+// HELPERS
+// =======================================================
 
 function firstArray(...values) {
   for (const value of values) {
-    if (Array.isArray(value)) return value;
+    if (Array.isArray(value)) {
+      return value;
+    }
   }
 
   return [];
@@ -40,6 +42,48 @@ function normalizeBusiness(raw, index = 0) {
       raw?.websiteUrl ??
       raw?.url ??
       "",
+
+    phone_number:
+      raw?.phone_number ??
+      raw?.phoneNumber ??
+      raw?.phone ??
+      "",
+
+    email:
+      raw?.email ??
+      raw?.email_address ??
+      raw?.emailAddress ??
+      "",
+
+    industry:
+      raw?.industry ??
+      raw?.business_industry ??
+      raw?.category ??
+      "",
+
+    status:
+      raw?.status ??
+      raw?.business_status ??
+      raw?.businessStatus ??
+      "",
+
+    address:
+      raw?.address ??
+      raw?.business_address ??
+      raw?.street_address ??
+      "",
+
+    city:
+      raw?.city ?? "",
+
+    state:
+      raw?.state ?? "",
+
+    zip_code:
+      raw?.zip_code ??
+      raw?.zipCode ??
+      raw?.postal_code ??
+      "",
   };
 }
 
@@ -65,7 +109,9 @@ function normalizeHistory(payload) {
 }
 
 function toArray(value) {
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) {
+    return value;
+  }
 
   if (
     value === null ||
@@ -78,166 +124,28 @@ function toArray(value) {
   return [value];
 }
 
-function isVerified(value) {
-  return (
-    value === true ||
-    value === "true" ||
-    value === "Verified" ||
-    value === "verified" ||
-    value === 1
-  );
+function displayValue(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "Not available";
+  }
+
+  return value;
 }
 
-function extractVerification(result, business) {
-  const crawlerResult =
-    result?.result ??
-    result?.verification ??
-    result?.crawlerResult ??
-    result?.crawler_result ??
-    result ??
-    {};
-
-  const savedResult =
-    result?.saved?.verification_result ??
-    result?.saved?.verificationResult ??
-    result?.saved ??
-    {};
-
-  const confidenceScore = Number(
-    savedResult?.confidence_score ??
-      savedResult?.confidenceScore ??
-      savedResult?.confidence ??
-      crawlerResult?.confidence_score ??
-      crawlerResult?.confidenceScore ??
-      crawlerResult?.confidence ??
-      result?.confidence_score ??
-      result?.confidenceScore ??
-      result?.confidence ??
-      0
-  );
-
-  const pagesCrawled = Number(
-    crawlerResult?.pages_crawled ??
-      crawlerResult?.pagesCrawled ??
-      crawlerResult?.page_count ??
-      crawlerResult?.pageCount ??
-      crawlerResult?.pages?.length ??
-      0
-  );
-
-  const phones = toArray(
-    crawlerResult?.phones ??
-      crawlerResult?.phone_candidates ??
-      crawlerResult?.phoneCandidates ??
-      crawlerResult?.phone ??
-      savedResult?.phones ??
-      savedResult?.phone
-  );
-
-  const emails = toArray(
-    crawlerResult?.emails ??
-      crawlerResult?.email_candidates ??
-      crawlerResult?.emailCandidates ??
-      crawlerResult?.email ??
-      savedResult?.emails ??
-      savedResult?.email
-  );
-
-  const addresses = toArray(
-    crawlerResult?.addresses ??
-      crawlerResult?.address_candidates ??
-      crawlerResult?.addressCandidates ??
-      crawlerResult?.address ??
-      savedResult?.addresses ??
-      savedResult?.address
-  );
-
-  const websiteVerified =
-    savedResult?.website_verified ??
-    savedResult?.websiteVerified ??
-    crawlerResult?.website_verified ??
-    crawlerResult?.websiteVerified ??
-    crawlerResult?.reachable ??
-    pagesCrawled > 0;
-
-  const phoneVerified =
-    savedResult?.phone_verified ??
-    savedResult?.phoneVerified ??
-    crawlerResult?.phone_verified ??
-    crawlerResult?.phoneVerified ??
-    crawlerResult?.phone_found ??
-    crawlerResult?.phoneFound ??
-    phones.length > 0;
-
-  const emailVerified =
-    savedResult?.email_verified ??
-    savedResult?.emailVerified ??
-    crawlerResult?.email_verified ??
-    crawlerResult?.emailVerified ??
-    crawlerResult?.email_found ??
-    crawlerResult?.emailFound ??
-    emails.length > 0;
-
-  const businessId =
-    result?.saved?.business_id ??
-    result?.saved?.businessId ??
-    savedResult?.business_id ??
-    savedResult?.businessId ??
-    result?.business_id ??
-    result?.businessId ??
-    business?.business_id;
-
-  const status =
-    pagesCrawled === 0
-      ? "Needs Review"
-      : confidenceScore >= 80
-        ? "Verified"
-        : confidenceScore >= 60
-          ? "Review Recommended"
-          : "Needs Review";
-
-  return {
-    businessId,
-    business: business?.business_name ?? "Unknown Business",
-    websiteUrl: business?.website ?? "",
-
-    website: isVerified(websiteVerified)
-      ? "Verified"
-      : "Not Verified",
-
-    phone: isVerified(phoneVerified)
-      ? "Verified"
-      : "Not Verified",
-
-    email: isVerified(emailVerified)
-      ? "Verified"
-      : "Not Verified",
-
-    confidence: confidenceScore,
-    pagesCrawled,
-    phones,
-    emails,
-    addresses,
-    status,
-
-    recommendation:
-      confidenceScore >= 80
-        ? "APPROVE"
-        : confidenceScore >= 60
-          ? "REVIEW"
-          : "REJECT",
-
-    verifiedAt: new Date().toISOString(),
-  };
-}
+// =======================================================
+// VERIFICATION PAGE
+// =======================================================
 
 export default function Verification() {
   const [history, setHistory] = useState([]);
   const [businesses, setBusinesses] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [runningBusinessId, setRunningBusinessId] =
+  const [importingBusinessId, setImportingBusinessId] =
     useState(null);
-  const [actioning, setActioning] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -245,13 +153,18 @@ export default function Verification() {
     loadData();
   }, []);
 
+  // =====================================================
+  // LOAD DATASET BUSINESSES AND HISTORY
+  // =====================================================
+
   async function loadData() {
     setLoading(true);
+    setMessage("");
 
     const [historyResult, businessesResult] =
       await Promise.allSettled([
         getVerificationHistory(),
-        getBusinesses(),
+        getDatasetBusinesses(),
       ]);
 
     if (historyResult.status === "fulfilled") {
@@ -263,6 +176,8 @@ export default function Verification() {
         "Verification history failed:",
         historyResult.reason
       );
+
+      setHistory([]);
     }
 
     if (businessesResult.status === "fulfilled") {
@@ -275,14 +190,12 @@ export default function Verification() {
 
       if (normalizedBusinesses.length === 0) {
         setMessage(
-          "⚠️ The business request succeeded, but returned no businesses."
+          "⚠️ The Business Dataset loaded, but it did not return any businesses."
         );
-      } else {
-        setMessage("");
       }
     } else {
       console.error(
-        "Failed to load businesses:",
+        "Failed to load Business Dataset:",
         businessesResult.reason
       );
 
@@ -292,173 +205,52 @@ export default function Verification() {
         businessesResult.reason?.response?.data
           ?.message ||
         businessesResult.reason?.message ||
-        "Failed to load businesses";
+        "Failed to load the Business Dataset";
 
+      setBusinesses([]);
       setMessage(`❌ ${errorMessage}`);
     }
 
     setLoading(false);
   }
 
-  async function handleRunVerification(business) {
-    if (!business?.website) {
-      setMessage(
-        "❌ Business has no website to verify."
-      );
-      return;
-    }
+  // =====================================================
+  // IMPORT SELECTED BUSINESS
+  // =====================================================
 
-    setRunningBusinessId(business.business_id);
+  function handleImportVerification(business) {
+    setImportingBusinessId(business.business_id);
     setMessage("");
-    setSelected(null);
 
     try {
-      const response = await runVerification(
-        business.business_name,
-        business.website
+      const importedBusiness =
+        normalizeBusiness(business);
+
+      setSelected(importedBusiness);
+
+      setMessage(
+        `✅ Imported verification information for ${importedBusiness.business_name}`
       );
-
-      console.log(
-        "Verification API response:",
-        response
-      );
-
-      const verificationResult =
-        extractVerification(response, business);
-
-      setSelected(verificationResult);
-
-      setHistory((currentHistory) => [
-        {
-          verification_id: `local-${Date.now()}`,
-          business_id:
-            verificationResult.businessId,
-          business_name:
-            verificationResult.business,
-          website:
-            verificationResult.websiteUrl,
-          verification_status:
-            verificationResult.status,
-          confidence_score:
-            verificationResult.confidence,
-          pages_crawled:
-            verificationResult.pagesCrawled,
-          phones:
-            verificationResult.phones,
-          emails:
-            verificationResult.emails,
-          addresses:
-            verificationResult.addresses,
-          verified_at:
-            verificationResult.verifiedAt,
-        },
-        ...currentHistory,
-      ]);
-
-      if (
-        verificationResult.pagesCrawled === 0
-      ) {
-        setMessage(
-          `⚠️ Verification completed, but no pages were crawled for ${business.business_name}.`
-        );
-      } else {
-        setMessage(
-          `✅ Verification complete for ${business.business_name}`
-        );
-      }
-    } catch (err) {
+    } catch (error) {
       console.error(
-        "Verification failed:",
-        err
+        "Business import failed:",
+        error
       );
 
-      const errorMessage =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Verification failed";
-
-      setMessage(`❌ ${errorMessage}`);
+      setMessage(
+        `❌ ${
+          error?.message ||
+          "Failed to import business information"
+        }`
+      );
     } finally {
-      setRunningBusinessId(null);
+      setImportingBusinessId(null);
     }
   }
 
-  async function handleApprove(result) {
-    if (!result?.businessId) {
-      setMessage(
-        "❌ Missing business ID. Unable to approve."
-      );
-      return;
-    }
-
-    setActioning(true);
-    setMessage("");
-
-    try {
-      await approveBusinessVerification(
-        result.businessId,
-        result.confidence,
-        "Approved after verification"
-      );
-
-      setMessage(
-        `✅ Approved: ${result.business}`
-      );
-
-      setSelected(null);
-
-      await loadData();
-    } catch (err) {
-      const errorMessage =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to approve business";
-
-      setMessage(`❌ ${errorMessage}`);
-    } finally {
-      setActioning(false);
-    }
-  }
-
-  async function handleReject(result) {
-    if (!result?.businessId) {
-      setMessage(
-        "❌ Missing business ID. Unable to reject."
-      );
-      return;
-    }
-
-    setActioning(true);
-    setMessage("");
-
-    try {
-      await rejectBusinessVerification(
-        result.businessId,
-        result.confidence,
-        "Rejected after verification"
-      );
-
-      setMessage(
-        `❌ Rejected: ${result.business}`
-      );
-
-      setSelected(null);
-
-      await loadData();
-    } catch (err) {
-      const errorMessage =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to reject business";
-
-      setMessage(`❌ ${errorMessage}`);
-    } finally {
-      setActioning(false);
-    }
-  }
+  // =====================================================
+  // PAGE
+  // =====================================================
 
   return (
     <div className="page">
@@ -473,15 +265,20 @@ export default function Verification() {
       )}
 
       <div className="verification-layout">
+        {/* ===============================================
+            BUSINESS DATASET LIST
+        ================================================ */}
+
         <div className="section">
-          <h2>Run Verification</h2>
+          <h2>Import Verification</h2>
 
           <p>
-            Select a business to verify:
+            Select a business from the Business
+            Dataset to import its information:
           </p>
 
           {loading ? (
-            <p>Loading businesses...</p>
+            <p>Loading Business Dataset...</p>
           ) : businesses.length === 0 ? (
             <div>
               <p>
@@ -490,6 +287,7 @@ export default function Verification() {
               </p>
 
               <button
+                type="button"
                 className="btn-sm btn-edit"
                 onClick={loadData}
               >
@@ -497,136 +295,174 @@ export default function Verification() {
               </button>
             </div>
           ) : (
-            <ul className="biz-selector">
-              {businesses.map((business) => {
-                const isRunning =
-                  runningBusinessId ===
-                  business.business_id;
+            <>
+              <p>
+                <strong>
+                  {businesses.length}
+                </strong>{" "}
+                businesses available
+              </p>
 
-                return (
-                  <li
-                    key={
-                      business.business_id
-                    }
-                  >
-                    <span>
-                      {business.business_name}
-                    </span>
+              <ul className="biz-selector">
+                {businesses.map((business) => {
+                  const isImporting =
+                    importingBusinessId ===
+                    business.business_id;
 
-                    <button
-                      className="btn-sm btn-edit"
-                      disabled={
-                        runningBusinessId !==
-                          null ||
-                        actioning ||
-                        !business.website
-                      }
-                      onClick={() =>
-                        handleRunVerification(
-                          business
-                        )
-                      }
+                  const isSelected =
+                    selected?.business_id ===
+                    business.business_id;
+
+                  return (
+                    <li
+                      key={business.business_id}
                     >
-                      {isRunning
-                        ? "Running..."
-                        : business.website
-                          ? "Verify"
-                          : "No Website"}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                      <span>
+                        {business.business_name}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="btn-sm btn-edit"
+                        disabled={
+                          importingBusinessId !==
+                          null
+                        }
+                        onClick={() =>
+                          handleImportVerification(
+                            business
+                          )
+                        }
+                      >
+                        {isImporting
+                          ? "Importing..."
+                          : isSelected
+                            ? "Imported"
+                            : "Import"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </div>
 
+        {/* ===============================================
+            IMPORTED BUSINESS OUTPUT
+        ================================================ */}
+
         <div className="section">
+          <h2>Imported Information</h2>
+
           {selected ? (
             <div>
-              <VerificationCard
-                result={selected}
-                onApprove={handleApprove}
-                onReject={handleReject}
-                disabled={actioning}
-              />
+              <h3>
+                {selected.business_name}
+              </h3>
+
+              <p>
+                <strong>
+                  Business ID:
+                </strong>{" "}
+                {displayValue(
+                  selected.business_id
+                )}
+              </p>
+
+              <p>
+                <strong>Website:</strong>{" "}
+                {selected.website ? (
+                  <a
+                    href={
+                      selected.website.startsWith(
+                        "http"
+                      )
+                        ? selected.website
+                        : `https://${selected.website}`
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {selected.website}
+                  </a>
+                ) : (
+                  "Not available"
+                )}
+              </p>
+
+              <p>
+                <strong>Phone:</strong>{" "}
+                {displayValue(
+                  selected.phone_number
+                )}
+              </p>
+
+              <p>
+                <strong>Email:</strong>{" "}
+                {displayValue(selected.email)}
+              </p>
+
+              <p>
+                <strong>Industry:</strong>{" "}
+                {displayValue(
+                  selected.industry
+                )}
+              </p>
+
+              <p>
+                <strong>
+                  Dataset Status:
+                </strong>{" "}
+                {displayValue(selected.status)}
+              </p>
+
+              <p>
+                <strong>Address:</strong>{" "}
+                {displayValue(
+                  selected.address
+                )}
+              </p>
+
+              <p>
+                <strong>City:</strong>{" "}
+                {displayValue(selected.city)}
+              </p>
+
+              <p>
+                <strong>State:</strong>{" "}
+                {displayValue(selected.state)}
+              </p>
+
+              <p>
+                <strong>ZIP Code:</strong>{" "}
+                {displayValue(
+                  selected.zip_code
+                )}
+              </p>
 
               <div
                 style={{
                   marginTop: "20px",
                 }}
               >
-                <h3>
-                  Verification Output
-                </h3>
-
-                <p>
-                  <strong>Website:</strong>{" "}
-                  {selected.websiteUrl ||
-                    "Not available"}
-                </p>
-
-                <p>
-                  <strong>
-                    Pages crawled:
-                  </strong>{" "}
-                  {selected.pagesCrawled}
-                </p>
-
-                <p>
-                  <strong>Status:</strong>{" "}
-                  {selected.status}
-                </p>
-
-                <p>
-                  <strong>
-                    Confidence:
-                  </strong>{" "}
-                  {selected.confidence}%
-                </p>
-
-                <p>
-                  <strong>Phones:</strong>{" "}
-                  {selected.phones.length
-                    ? selected.phones.join(
-                        ", "
-                      )
-                    : "None found"}
-                </p>
-
-                <p>
-                  <strong>Emails:</strong>{" "}
-                  {selected.emails.length
-                    ? selected.emails.join(
-                        ", "
-                      )
-                    : "None found"}
-                </p>
-
-                <p>
-                  <strong>
-                    Addresses:
-                  </strong>{" "}
-                  {selected.addresses.length
-                    ? selected.addresses.join(
-                        ", "
-                      )
-                    : "None found"}
-                </p>
+                <span className="badge badge-yellow">
+                  Imported from Business Dataset
+                </span>
               </div>
             </div>
-          ) : runningBusinessId !== null ? (
-            <p>
-              Searching and verifying business
-              information...
-            </p>
           ) : (
             <p>
-              Select a business and click Verify
-              to see results.
+              Select a business and click Import
+              to display its information here.
             </p>
           )}
         </div>
       </div>
+
+      {/* ===============================================
+          EXISTING VERIFICATION HISTORY
+      ================================================ */}
 
       <div className="section">
         <h2>Verification History</h2>
@@ -658,23 +494,19 @@ export default function Verification() {
 
               <tbody>
                 {history.map(
-                  (
-                    verification,
-                    index
-                  ) => {
+                  (verification, index) => {
                     const status =
                       verification.verification_status ||
                       verification.status ||
                       verification.decision ||
                       "Pending";
 
-                    const confidence =
-                      Number(
-                        verification.confidence_score ??
-                          verification.confidenceScore ??
-                          verification.confidence ??
-                          0
-                      );
+                    const confidence = Number(
+                      verification.confidence_score ??
+                        verification.confidenceScore ??
+                        verification.confidence ??
+                        0
+                    );
 
                     const pages = Number(
                       verification.pages_crawled ??
@@ -696,12 +528,11 @@ export default function Verification() {
                         verification.email
                     );
 
-                    const addresses =
-                      toArray(
-                        verification.addresses ??
-                          verification.address_candidates ??
-                          verification.address
-                      );
+                    const addresses = toArray(
+                      verification.addresses ??
+                        verification.address_candidates ??
+                        verification.address
+                    );
 
                     const verifiedDate =
                       verification.verified_at ||
@@ -774,9 +605,7 @@ export default function Verification() {
 
                         <td>
                           {addresses.length
-                            ? addresses.join(
-                                ", "
-                              )
+                            ? addresses.join(", ")
                             : "None"}
                         </td>
 
