@@ -451,7 +451,9 @@ async function checkSystemStatus() {
       dbStatus.textContent =
         data.database === "connected"
           ? "Connected"
-          : "Not Connected";
+          : data.database === "disabled"
+            ? "Demo Mode"
+            : "Not Connected";
     }
 
     log("API health check successful.");
@@ -487,7 +489,9 @@ async function checkSystemStatus() {
       chromiumStatus.textContent =
         status.chromium === "ready"
           ? "Ready"
-          : status.chromium || "Unknown";
+          : status.chromium === "unknown"
+            ? "Pending"
+            : status.chromium || "Unknown";
     }
 
     if (ollamaStatus) {
@@ -605,8 +609,7 @@ loadAllBtn?.addEventListener(
 
     loadResults.innerHTML = `
       <p>
-        Loading business and employee data
-        into PostgreSQL...
+        Loading business data into the demo queue...
       </p>
     `;
 
@@ -696,7 +699,9 @@ runBtn?.addEventListener(
         await readJsonResponse(response);
 
       const result =
-        data.result;
+        data.result ||
+        data.verification ||
+        data.latestVerification;
 
       if (!result) {
         throw new Error(
@@ -742,7 +747,7 @@ runBtn?.addEventListener(
 
 
 // =====================================================
-// VERIFY NEXT BUSINESS FROM POSTGRESQL
+// VERIFY NEXT BUSINESS FROM DEMO QUEUE
 // =====================================================
 
 verifyNextBtn?.addEventListener(
@@ -755,7 +760,7 @@ verifyNextBtn?.addEventListener(
       "Verifying Business...";
 
     log(
-      "Requesting next unverified business from PostgreSQL..."
+      "Requesting next unverified business from the demo queue..."
     );
 
     startLiveViewer();
@@ -776,7 +781,7 @@ verifyNextBtn?.addEventListener(
       const data =
         await readJsonResponse(response);
 
-      if (data.complete) {
+      if (data.complete && !data.result && !data.verification) {
         stopLiveViewer();
 
         log(
@@ -810,10 +815,14 @@ verifyNextBtn?.addEventListener(
       }
 
       const business =
-        data.business || {};
+        data.business ||
+        data.item ||
+        {};
 
       const result =
-        data.result;
+        data.result ||
+        data.verification ||
+        data.latestVerification;
 
       if (!result) {
         throw new Error(
@@ -828,7 +837,7 @@ verifyNextBtn?.addEventListener(
         "Unknown Business";
 
       log(
-        `Database business selected: ${businessName}`
+        `Business selected: ${businessName}`
       );
 
       if (business.business_id) {
@@ -907,7 +916,7 @@ verifyNextBtn?.addEventListener(
       );
 
       log(
-        "Verification result saved to PostgreSQL."
+        "Verification result stored for this demo session."
       );
     } catch (error) {
       stopLiveViewer();
