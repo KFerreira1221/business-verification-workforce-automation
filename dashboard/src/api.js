@@ -20,15 +20,14 @@ async function handleResponse(res, label) {
   return data;
 }
 
-
 // =======================================================
 // BUSINESSES
 // =======================================================
 
+// Businesses already stored in PostgreSQL.
+// Keep this for the Businesses tab.
 export const getBusinesses = async () => {
-  const res = await fetch(
-    `${API_BASE}/businesses`
-  );
+  const res = await fetch(`${API_BASE}/businesses`);
 
   const data = await handleResponse(
     res,
@@ -38,6 +37,20 @@ export const getBusinesses = async () => {
   return data.businesses || [];
 };
 
+// Businesses imported from BusinessDatasets.csv.
+// Use this for the Verification tab.
+export const getDatasetBusinesses = async () => {
+  const res = await fetch(
+    `${API_BASE}/load/businesses`
+  );
+
+  const data = await handleResponse(
+    res,
+    "Get dataset businesses"
+  );
+
+  return data.businesses || [];
+};
 
 export const createBusiness = async (business) => {
   const res = await fetch(
@@ -56,7 +69,6 @@ export const createBusiness = async (business) => {
     "Create business"
   );
 };
-
 
 export const updateBusiness = async (
   id,
@@ -79,7 +91,6 @@ export const updateBusiness = async (
   );
 };
 
-
 export const deleteBusiness = async (id) => {
   const res = await fetch(
     `${API_BASE}/businesses/${id}`,
@@ -93,7 +104,6 @@ export const deleteBusiness = async (id) => {
     "Delete business"
   );
 };
-
 
 // =======================================================
 // VERIFICATION
@@ -111,7 +121,6 @@ export const getVerificationHistory = async () => {
 
   return data.results || [];
 };
-
 
 export const runVerification = async (
   businessName,
@@ -142,19 +151,25 @@ export const approveBusinessVerification = async (
   confidenceScore = null,
   notes = null
 ) => {
-  const res = await fetch(`${API_BASE}/verification/approve`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      businessId,
-      confidenceScore,
-      notes,
-    }),
-  });
+  const res = await fetch(
+    `${API_BASE}/verification/approve`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessId,
+        confidenceScore,
+        notes,
+      }),
+    }
+  );
 
-  return handleResponse(res, "Approve verification");
+  return handleResponse(
+    res,
+    "Approve verification"
+  );
 };
 
 export const rejectBusinessVerification = async (
@@ -162,21 +177,26 @@ export const rejectBusinessVerification = async (
   confidenceScore = null,
   notes = null
 ) => {
-  const res = await fetch(`${API_BASE}/verification/reject`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      businessId,
-      confidenceScore,
-      notes,
-    }),
-  });
+  const res = await fetch(
+    `${API_BASE}/verification/reject`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessId,
+        confidenceScore,
+        notes,
+      }),
+    }
+  );
 
-  return handleResponse(res, "Reject verification");
+  return handleResponse(
+    res,
+    "Reject verification"
+  );
 };
-
 
 // =======================================================
 // DASHBOARD
@@ -194,7 +214,6 @@ export const getDashboardStats = async () => {
 
   return data.stats || {};
 };
-
 
 // =======================================================
 // SYSTEM STATUS
