@@ -1,27 +1,62 @@
 const fs = require("fs");
 const path = require("path");
 const mammoth = require("mammoth");
-const pool = require("./db");
+
+
+// =====================================================
+// OPTIONAL XLSX SUPPORT
+// =====================================================
+
+let XLSX = null;
+
+try {
+  XLSX = require("xlsx");
+} catch (error) {
+  console.log(
+    "[FILES] XLSX package is not installed. CSV and DOCX will still work."
+  );
+}
+
+
+// =====================================================
+// INPUT FOLDER
+// =====================================================
 
 const INPUT_FOLDER = path.join(
   __dirname,
   "../data/input"
 );
 
+
+// =====================================================
+// IN-MEMORY STORAGE
+//
+// PostgreSQL is no longer used.
+// These values reset when Render restarts.
+// =====================================================
+
+let loadedBusinesses = [];
+let loadedDocuments = [];
+
+let nextBusinessId = 1;
+let nextDocumentId = 1;
+
+
 // =====================================================
 // FILE CATEGORIES
 // =====================================================
 
 function getCategory(fileName) {
-  const name = String(fileName || "").toLowerCase();
+  const name = String(
+    fileName || ""
+  ).toLowerCase();
 
-  // CSV and XLSX files remain visible in the input-file
-  // list, but they will not be imported into PostgreSQL.
   if (
     name.endsWith(".csv") ||
-    name.endsWith(".xlsx")
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls")
   ) {
-    return "business_dataset_disabled";
+    return "business_dataset";
   }
 
   if (
@@ -39,13 +74,19 @@ function getCategory(fileName) {
     name.includes("background") ||
     name.includes("training") ||
     name.includes("employment") ||
-    name.includes("compliance")
+    name.includes("compliance") ||
+    name.includes("onboarding")
   ) {
     return "employee_document";
   }
 
+  if (name.endsWith(".docx")) {
+    return "document";
+  }
+
   return "unknown";
 }
+
 
 // =====================================================
 // LIST INPUT FILES
@@ -53,68 +94,643 @@ function getCategory(fileName) {
 
 async function listInputFiles() {
   if (!fs.existsSync(INPUT_FOLDER)) {
-    throw new Error(
-      `Input folder not found: ${INPUT_FOLDER}`
+    fs.mkdirSync(
+      INPUT_FOLDER,
+      {
+        recursive: true,
+      }
     );
   }
 
-  const files = fs.readdirSync(INPUT_FOLDER);
+  const files =
+    fs.readdirSync(INPUT_FOLDER);
 
-  return files.map((fileName) => ({
-    fileName,
-    extension: path
-      .extname(fileName)
-      .toLowerCase(),
-    category: getCategory(fileName),
-    path: path.join(
-      INPUT_FOLDER,
-      fileName
-    ),
-  }));
+  return files.map(
+    (fileName) => ({
+      fileName,
+
+      extension:
+        path
+          .extname(fileName)
+          .toLowerCase(),
+
+      category:
+        getCategory(fileName),
+
+      path:
+        path.join(
+          INPUT_FOLDER,
+          fileName
+        ),
+    })
+  );
 }
 
+
 // =====================================================
-// BUSINESS DATASET IMPORT DISABLED
+// NORMALIZE WEBSITE
+// =====================================================
+
+function normalizeWebsite(website) {
+  if (!website) {
+    return null;
+  }
+
+  const cleaned =
+    String(website).trim();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  return /^https?:\/\//i.test(cleaned)
+    ? cleaned
+    : `https://${cleaned}`;
+}
+
+
+// =====================================================
+// FIND A VALUE USING MULTIPLE POSSIBLE COLUMN NAMES
+// =====================================================
+
+function getRowValue(
+  row,
+  possibleNames
+) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const keys =
+    Object.keys(row);
+
+  for (const possibleName of possibleNames) {
+    const matchingKey =
+      keys.find(
+        (key) =>
+          String(key)
+            .trim()
+            .toLowerCase() ===
+          String(possibleName)
+            .trim()
+            .toLowerCase()
+      );
+
+    if (matchingKey) {
+      const value =
+        row[matchingKey];
+
+      if (
+        value !== undefined &&
+        value !== null &&
+        String(value).trim() !== ""
+      ) {
+        return String(value).trim();
+      }
+    }
+  }
+
+  return null;
+}
+
+
+// =====================================================
+// NORMALIZE BUSINESS ROW
+// =====================================================
+
+function normalizeBusinessRow(
+  row,
+  sourceFile
+) {
+  const businessName =
+    getRowValue(
+      row,
+      [
+        "business_name",
+        "business name",
+        "business",
+        "company_name",
+        "company name",
+        "company",
+        "name",
+      ]
+    );
+
+  const website =
+    normalizeWebsite(
+      getRowValue(
+        row,
+        [
+          "website",
+          "business_website",
+          "business website",
+          "company website",
+          "url",
+          "web",
+        ]
+      )
+    );
+
+  const phone =
+    getRowValue(
+      row,
+      [
+        "phone",
+        "phone_number",
+        "phone number",
+        "telephone",
+      ]
+    );
+
+  const email =
+    getRowValue(
+      row,
+      [
+        "email",
+        "email_address",
+        "email address",
+      ]
+    );
+
+  const industry =
+    getRowValue(
+      row,
+      [
+        "industry",
+        "business_industry",
+        "sector",
+        "category",
+      ]
+    );
+
+  const address =
+    getRowValue(
+      row,
+      [
+        "address",
+        "business_address",
+        "business address",
+        "street address",
+      ]
+    );
+
+  const city =
+    getRowValue(
+      row,
+      [
+        "city",
+        "business_city",
+      ]
+    );
+
+  const state =
+    getRowValue(
+      row,
+      [
+        "state",
+        "business_state",
+      ]
+    );
+
+  const zipCode =
+    getRowValue(
+      row,
+      [
+        "zip",
+        "zipcode",
+        "zip_code",
+        "postal code",
+      ]
+    );
+
+  if (!businessName) {
+    return null;
+  }
+
+  return {
+    business_id:
+      nextBusinessId++,
+
+    business_name:
+      businessName,
+
+    businessName,
+
+    website,
+
+    phone_number:
+      phone,
+
+    phoneNumber:
+      phone,
+
+    email,
+
+    industry,
+
+    address,
+
+    city,
+
+    state,
+
+    zip_code:
+      zipCode,
+
+    business_status:
+      "Imported",
+
+    source_file:
+      sourceFile,
+
+    imported_at:
+      new Date().toISOString(),
+  };
+}
+
+
+// =====================================================
+// SIMPLE CSV PARSER
+// =====================================================
+
+function parseCsvLine(line) {
+  const values = [];
+
+  let current = "";
+  let insideQuotes = false;
+
+  for (
+    let index = 0;
+    index < line.length;
+    index++
+  ) {
+    const character =
+      line[index];
+
+    if (character === '"') {
+      const nextCharacter =
+        line[index + 1];
+
+      if (
+        insideQuotes &&
+        nextCharacter === '"'
+      ) {
+        current += '"';
+        index++;
+      } else {
+        insideQuotes =
+          !insideQuotes;
+      }
+
+      continue;
+    }
+
+    if (
+      character === "," &&
+      !insideQuotes
+    ) {
+      values.push(
+        current.trim()
+      );
+
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  values.push(
+    current.trim()
+  );
+
+  return values;
+}
+
+
+function parseCsvText(csvText) {
+  const lines =
+    String(csvText || "")
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          line.trim() !== ""
+      );
+
+  if (!lines.length) {
+    return [];
+  }
+
+  const headers =
+    parseCsvLine(
+      lines[0]
+    );
+
+  return lines
+    .slice(1)
+    .map((line) => {
+      const values =
+        parseCsvLine(line);
+
+      const row = {};
+
+      headers.forEach(
+        (header, index) => {
+          row[header] =
+            values[index] ?? "";
+        }
+      );
+
+      return row;
+    });
+}
+
+
+// =====================================================
+// READ BUSINESS DATASET FILE
+// =====================================================
+
+async function readBusinessDatasetFile(
+  file
+) {
+  if (file.extension === ".csv") {
+    const csvText =
+      fs.readFileSync(
+        file.path,
+        "utf8"
+      );
+
+    return parseCsvText(
+      csvText
+    );
+  }
+
+  if (
+    file.extension === ".xlsx" ||
+    file.extension === ".xls"
+  ) {
+    if (!XLSX) {
+      throw new Error(
+        "The xlsx package is required to read Excel files."
+      );
+    }
+
+    const workbook =
+      XLSX.readFile(
+        file.path
+      );
+
+    const firstSheetName =
+      workbook.SheetNames[0];
+
+    if (!firstSheetName) {
+      return [];
+    }
+
+    return XLSX.utils.sheet_to_json(
+      workbook.Sheets[
+        firstSheetName
+      ],
+      {
+        defval: "",
+      }
+    );
+  }
+
+  return [];
+}
+
+
+// =====================================================
+// REMOVE DUPLICATE BUSINESSES
+// =====================================================
+
+function removeDuplicateBusinesses(
+  businesses
+) {
+  const seen = new Set();
+
+  return businesses.filter(
+    (business) => {
+      const name =
+        String(
+          business.business_name || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const website =
+        String(
+          business.website || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const key =
+        `${name}|${website}`;
+
+      if (!name) {
+        return false;
+      }
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+
+      return true;
+    }
+  );
+}
+
+
+// =====================================================
+// LOAD BUSINESS DATASETS INTO MEMORY
 // =====================================================
 
 async function loadBusinessDataset() {
-  console.log(
-    "[DATASET] Business CSV/XLSX import is disabled."
-  );
+  const files =
+    await listInputFiles();
+
+  const datasetFiles =
+    files.filter(
+      (file) =>
+        file.category ===
+        "business_dataset"
+    );
+
+  const imported = [];
+  const errors = [];
+  const filesProcessed = [];
+
+  for (const file of datasetFiles) {
+    try {
+      const rows =
+        await readBusinessDatasetFile(
+          file
+        );
+
+      const businesses =
+        rows
+          .map((row) =>
+            normalizeBusinessRow(
+              row,
+              file.fileName
+            )
+          )
+          .filter(Boolean);
+
+      imported.push(
+        ...businesses
+      );
+
+      filesProcessed.push({
+        fileName:
+          file.fileName,
+
+        rowCount:
+          rows.length,
+
+        importedCount:
+          businesses.length,
+      });
+    } catch (error) {
+      console.error(
+        `[DATASET] Failed to load ${file.fileName}:`,
+        error
+      );
+
+      errors.push({
+        fileName:
+          file.fileName,
+
+        message:
+          error.message,
+      });
+    }
+  }
+
+  loadedBusinesses =
+    removeDuplicateBusinesses(
+      imported
+    );
 
   console.log(
-    "[DATASET] Businesses must be created through the Businesses page."
+    `[DATASET] Loaded ${loadedBusinesses.length} businesses into memory`
   );
 
   return {
     success: true,
-    disabled: true,
-    message:
-      "Business dataset import is disabled. Add businesses through the Businesses page.",
-    filesProcessed: [],
-    count: 0,
-    imported: [],
+
+    storage:
+      "memory",
+
+    persistent:
+      false,
+
+    filesProcessed,
+
+    count:
+      loadedBusinesses.length,
+
+    imported:
+      loadedBusinesses,
+
+    errors,
   };
 }
 
+
 // =====================================================
 // COMPATIBILITY FUNCTION
+//
+// This no longer writes to PostgreSQL.
 // =====================================================
 
-async function upsertBusiness() {
-  throw new Error(
-    "Business dataset import is disabled. Add or update businesses through the Businesses API."
+async function upsertBusiness(
+  business
+) {
+  const normalized =
+    normalizeBusinessRow(
+      business,
+      "frontend"
+    );
+
+  if (!normalized) {
+    throw new Error(
+      "A business name is required."
+    );
+  }
+
+  const existingIndex =
+    loadedBusinesses.findIndex(
+      (current) => {
+        const sameName =
+          current.business_name
+            .toLowerCase() ===
+          normalized.business_name
+            .toLowerCase();
+
+        const sameWebsite =
+          Boolean(
+            current.website &&
+            normalized.website &&
+            current.website ===
+              normalized.website
+          );
+
+        return (
+          sameName ||
+          sameWebsite
+        );
+      }
+    );
+
+  if (existingIndex >= 0) {
+    loadedBusinesses[
+      existingIndex
+    ] = {
+      ...loadedBusinesses[
+        existingIndex
+      ],
+
+      ...normalized,
+
+      business_id:
+        loadedBusinesses[
+          existingIndex
+        ].business_id,
+
+      updated_at:
+        new Date().toISOString(),
+    };
+
+    return loadedBusinesses[
+      existingIndex
+    ];
+  }
+
+  loadedBusinesses.push(
+    normalized
   );
+
+  return normalized;
 }
+
 
 // =====================================================
 // DOCX TEXT EXTRACTION
 // =====================================================
 
-async function extractDocxText(filePath) {
+async function extractDocxText(
+  filePath
+) {
   const result =
     await mammoth.extractRawText({
-      path: filePath,
+      path:
+        filePath,
     });
 
   return String(
@@ -122,13 +738,18 @@ async function extractDocxText(filePath) {
   ).trim();
 }
 
+
 // =====================================================
 // DOCUMENT TYPE
 // =====================================================
 
-function detectDocumentType(fileName) {
+function detectDocumentType(
+  fileName
+) {
   const name =
-    String(fileName || "").toLowerCase();
+    String(
+      fileName || ""
+    ).toLowerCase();
 
   if (name.includes("license")) {
     return "Business License";
@@ -170,11 +791,12 @@ function detectDocumentType(fileName) {
     return "Compliance Certificate";
   }
 
-  return "Unknown Document";
+  return "General Document";
 }
 
+
 // =====================================================
-// GENERIC FIELD EXTRACTOR
+// GENERIC FIELD EXTRACTION
 // =====================================================
 
 function escapeRegex(value) {
@@ -184,7 +806,11 @@ function escapeRegex(value) {
   );
 }
 
-function extractValue(text, label) {
+
+function extractValue(
+  text,
+  label
+) {
   const safeLabel =
     escapeRegex(label);
 
@@ -195,18 +821,23 @@ function extractValue(text, label) {
     );
 
   const match =
-    String(text || "").match(regex);
+    String(text || "").match(
+      regex
+    );
 
   return match
     ? match[1].trim()
     : null;
 }
 
+
 // =====================================================
 // EXTRACT DOCUMENT FIELDS
 // =====================================================
 
-function extractDocumentFields(text) {
+function extractDocumentFields(
+  text
+) {
   return {
     businessName:
       extractValue(
@@ -306,93 +937,12 @@ function extractDocumentFields(text) {
   };
 }
 
-// =====================================================
-// FIND EXISTING BUSINESS
-// =====================================================
-
-async function findBusinessByName(
-  businessName
-) {
-  const normalizedName =
-    String(
-      businessName || ""
-    ).trim();
-
-  if (!normalizedName) {
-    return null;
-  }
-
-  const result =
-    await pool.query(
-      `
-        SELECT *
-        FROM businesses
-        WHERE LOWER(TRIM(business_name))
-          = LOWER(TRIM($1))
-        LIMIT 1
-      `,
-      [normalizedName]
-    );
-
-  return result.rows[0] || null;
-}
 
 // =====================================================
-// DOCUMENT BUSINESS LOOKUP
-// =====================================================
-
-async function getExistingBusiness(
-  businessName
-) {
-  if (!businessName) {
-    return null;
-  }
-
-  const business =
-    await findBusinessByName(
-      businessName
-    );
-
-  if (!business) {
-    console.log(
-      `[DOCUMENT] No existing PostgreSQL business matched: ${businessName}`
-    );
-
-    console.log(
-      "[DOCUMENT] The document will be stored without creating a placeholder business."
-    );
-  }
-
-  return business;
-}
-
-// =====================================================
-// SAFE DATE VALUE
-// =====================================================
-
-function normalizeDate(value) {
-  if (!value) {
-    return null;
-  }
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return null;
-  }
-
-  return date
-    .toISOString()
-    .slice(0, 10);
-}
-
-// =====================================================
-// INSERT OR UPDATE DOCUMENT
+// INSERT DOCUMENT INTO MEMORY
+//
+// The function name remains insertDocument so existing
+// routes do not break.
 // =====================================================
 
 async function insertDocument(
@@ -408,20 +958,21 @@ async function insertDocument(
   const extension =
     String(
       file.extension ||
-      path.extname(file.path)
+      path.extname(
+        file.path
+      )
     ).toLowerCase();
 
   if (extension !== ".docx") {
-    console.log(
-      `[DOCUMENT] Skipped unsupported file: ${file.fileName}`
-    );
-
     return {
       skipped: true,
+
       reason:
         "Only DOCX document extraction is currently supported.",
+
       fileName:
         file.fileName,
+
       category,
     };
   }
@@ -441,206 +992,20 @@ async function insertDocument(
       text
     );
 
-  let businessId = null;
-
-  if (extracted.businessName) {
-    const business =
-      await getExistingBusiness(
-        extracted.businessName
-      );
-
-    businessId =
-      business?.business_id ||
-      null;
-  }
-
-  // Find an existing document by name so repeated
-  // imports update rather than duplicate it.
-  const existingDocument =
-    await pool.query(
-      `
-        SELECT document_id
-        FROM documents
-        WHERE document_name = $1
-        LIMIT 1
-      `,
-      [file.fileName]
+  const existingIndex =
+    loadedDocuments.findIndex(
+      (document) =>
+        document.fileName ===
+        file.fileName
     );
 
-  let document;
-
-  if (
-    existingDocument.rows.length > 0
-  ) {
-    const documentId =
-      existingDocument
-        .rows[0]
-        .document_id;
-
-    const updated =
-      await pool.query(
-        `
-          UPDATE documents
-          SET
-            business_id = $1,
-            document_type = $2,
-            file_path = $3,
-            processing_status = 'Processed',
-            processed_at = CURRENT_TIMESTAMP
-          WHERE document_id = $4
-          RETURNING *
-        `,
-        [
-          businessId,
-          documentType,
-          file.path,
-          documentId,
-        ]
-      );
-
-    document =
-      updated.rows[0];
-
-    await pool.query(
-      `
-        DELETE FROM
-          extracted_document_data
-        WHERE document_id = $1
-      `,
-      [documentId]
-    );
-  } else {
-    const inserted =
-      await pool.query(
-        `
-          INSERT INTO documents
-          (
-            business_id,
-            document_name,
-            document_type,
-            file_path,
-            processing_status,
-            processed_at
-          )
-          VALUES
-          (
-            $1,
-            $2,
-            $3,
-            $4,
-            'Processed',
-            CURRENT_TIMESTAMP
-          )
-          RETURNING *
-        `,
-        [
-          businessId,
-          file.fileName,
-          documentType,
-          file.path,
-        ]
-      );
-
-    document =
-      inserted.rows[0];
-  }
-
-  const extractedDate =
-    normalizeDate(
-      extracted.extractedDate
-    );
-
-  await pool.query(
-    `
-      INSERT INTO
-        extracted_document_data
-      (
-        document_id,
-        extracted_text,
-        extracted_business_name,
-        extracted_employee_name,
-        extracted_vendor_name,
-        extracted_address,
-        extracted_phone,
-        extracted_email,
-        extracted_license_number,
-        extracted_invoice_number,
-        extracted_amount,
-        extracted_tin,
-        extracted_document_status,
-        extracted_training_name,
-        extracted_coverage_type,
-        extracted_date,
-        confidence_score
-      )
-      VALUES
-      (
-        $1,
-        $2,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8,
-        $9,
-        $10,
-
-        NULLIF(
-          REGEXP_REPLACE(
-            COALESCE($11, ''),
-            '[^0-9.]',
-            '',
-            'g'
-          ),
-          ''
-        )::DECIMAL,
-
-        $12,
-        $13,
-        $14,
-        $15,
-        NULLIF($16, '')::DATE,
-        $17
-      )
-    `,
-    [
-      document.document_id,
-      text,
-      extracted.businessName,
-      extracted.employeeName,
-      extracted.vendorName,
-      extracted.address,
-      extracted.phone,
-      extracted.email,
-      extracted.licenseNumber,
-      extracted.invoiceNumber,
-      extracted.amount,
-      extracted.tin,
-      extracted.documentStatus,
-      extracted.trainingName,
-      extracted.coverageType,
-      extractedDate,
-      80,
-    ]
-  );
-
-  console.log(
-    `[DOCUMENT] Imported ${file.fileName}`
-  );
-
-  if (
-    extracted.businessName &&
-    !businessId
-  ) {
-    console.log(
-      `[DOCUMENT] Saved without a business link because "${extracted.businessName}" does not exist in PostgreSQL.`
-    );
-  }
-
-  return {
+  const document = {
     documentId:
-      document.document_id,
+      existingIndex >= 0
+        ? loadedDocuments[
+            existingIndex
+          ].documentId
+        : nextDocumentId++,
 
     fileName:
       file.fileName,
@@ -649,130 +1014,154 @@ async function insertDocument(
 
     documentType,
 
-    businessId,
+    filePath:
+      file.path,
 
-    linkedToExistingBusiness:
-      Boolean(businessId),
+    extractedText:
+      text,
+
+    processingStatus:
+      "Processed",
+
+    processedAt:
+      new Date().toISOString(),
+
+    confidenceScore:
+      80,
 
     ...extracted,
   };
+
+  if (existingIndex >= 0) {
+    loadedDocuments[
+      existingIndex
+    ] = document;
+  } else {
+    loadedDocuments.push(
+      document
+    );
+  }
+
+  console.log(
+    `[DOCUMENT] Loaded ${file.fileName} into memory`
+  );
+
+  return document;
 }
+
+
+// =====================================================
+// LOAD DOCUMENT CATEGORY
+// =====================================================
+
+async function loadDocumentsByCategory(
+  category
+) {
+  const files =
+    await listInputFiles();
+
+  const documents =
+    files.filter(
+      (file) =>
+        file.category ===
+          category ||
+        (
+          file.category ===
+            "document" &&
+          category ===
+            "business_document"
+        )
+    );
+
+  const imported = [];
+  const errors = [];
+
+  for (const file of documents) {
+    try {
+      const result =
+        await insertDocument(
+          file,
+          category
+        );
+
+      imported.push(
+        result
+      );
+    } catch (error) {
+      console.error(
+        `[DOCUMENT] Failed to load ${file.fileName}:`,
+        error
+      );
+
+      errors.push({
+        fileName:
+          file.fileName,
+
+        message:
+          error.message,
+      });
+    }
+  }
+
+  return {
+    success: true,
+
+    storage:
+      "memory",
+
+    persistent:
+      false,
+
+    count:
+      imported.length,
+
+    errorCount:
+      errors.length,
+
+    imported,
+
+    errors,
+  };
+}
+
 
 // =====================================================
 // LOAD BUSINESS DOCUMENTS
 // =====================================================
 
 async function loadBusinessDocuments() {
-  const files =
-    await listInputFiles();
-
-  const documents =
-    files.filter(
-      (file) =>
-        file.category ===
-        "business_document"
+  const result =
+    await loadDocumentsByCategory(
+      "business_document"
     );
-
-  const imported = [];
-  const errors = [];
-
-  for (const file of documents) {
-    try {
-      const result =
-        await insertDocument(
-          file,
-          "business_document"
-        );
-
-      imported.push(result);
-    } catch (error) {
-      console.error(
-        `[DOCUMENT] Failed to import ${file.fileName}:`,
-        error
-      );
-
-      errors.push({
-        fileName:
-          file.fileName,
-        message:
-          error.message,
-      });
-    }
-  }
 
   return {
     message:
-      "Business documents processed",
+      "Business documents loaded into memory",
 
-    count:
-      imported.length,
-
-    errorCount:
-      errors.length,
-
-    imported,
-
-    errors,
+    ...result,
   };
 }
+
 
 // =====================================================
 // LOAD EMPLOYEE DOCUMENTS
 // =====================================================
 
 async function loadEmployeeDocuments() {
-  const files =
-    await listInputFiles();
-
-  const documents =
-    files.filter(
-      (file) =>
-        file.category ===
-        "employee_document"
+  const result =
+    await loadDocumentsByCategory(
+      "employee_document"
     );
-
-  const imported = [];
-  const errors = [];
-
-  for (const file of documents) {
-    try {
-      const result =
-        await insertDocument(
-          file,
-          "employee_document"
-        );
-
-      imported.push(result);
-    } catch (error) {
-      console.error(
-        `[DOCUMENT] Failed to import ${file.fileName}:`,
-        error
-      );
-
-      errors.push({
-        fileName:
-          file.fileName,
-        message:
-          error.message,
-      });
-    }
-  }
 
   return {
     message:
-      "Employee documents processed",
+      "Employee documents loaded into memory",
 
-    count:
-      imported.length,
-
-    errorCount:
-      errors.length,
-
-    imported,
-
-    errors,
+    ...result,
   };
 }
+
 
 // =====================================================
 // LOAD ALL PROJECT DATA
@@ -780,16 +1169,17 @@ async function loadEmployeeDocuments() {
 
 async function loadAllInputData() {
   console.log(
-    "[IMPORT] Starting document-only project import..."
+    "[IMPORT] Starting no-database project import..."
   );
 
-  console.log(
-    "[IMPORT] CSV/XLSX business dataset import is disabled."
-  );
+  loadedBusinesses = [];
+  loadedDocuments = [];
 
-  console.log(
-    "[IMPORT] PostgreSQL businesses are the source of truth."
-  );
+  nextBusinessId = 1;
+  nextDocumentId = 1;
+
+  const businesses =
+    await loadBusinessDataset();
 
   const businessDocuments =
     await loadBusinessDocuments();
@@ -798,28 +1188,110 @@ async function loadAllInputData() {
     await loadEmployeeDocuments();
 
   console.log(
-    "[IMPORT] Document-only project import completed."
+    "[IMPORT] No-database project import completed."
   );
 
   return {
     success: true,
 
-    message:
-      "Project documents loaded. Business CSV/XLSX import is disabled.",
+    storage:
+      "memory",
 
-    businesses: {
-      disabled: true,
-      message:
-        "Businesses must be added through the Businesses page.",
-      count: 0,
-      imported: [],
-    },
+    persistent:
+      false,
+
+    database:
+      "disabled",
+
+    message:
+      "Project files loaded directly into backend memory.",
+
+    businesses,
 
     businessDocuments,
 
     employeeDocuments,
+
+    totals: {
+      businesses:
+        loadedBusinesses.length,
+
+      documents:
+        loadedDocuments.length,
+    },
   };
 }
+
+
+// =====================================================
+// GETTERS FOR ROUTES
+// =====================================================
+
+function getLoadedBusinesses() {
+  return [
+    ...loadedBusinesses,
+  ];
+}
+
+
+function getLoadedDocuments() {
+  return [
+    ...loadedDocuments,
+  ];
+}
+
+
+function getLoadedData() {
+  return {
+    businesses:
+      getLoadedBusinesses(),
+
+    documents:
+      getLoadedDocuments(),
+
+    totals: {
+      businesses:
+        loadedBusinesses.length,
+
+      documents:
+        loadedDocuments.length,
+    },
+
+    storage:
+      "memory",
+
+    persistent:
+      false,
+  };
+}
+
+
+// =====================================================
+// CLEAR LOADED DATA
+// =====================================================
+
+function clearLoadedData() {
+  const removedBusinesses =
+    loadedBusinesses.length;
+
+  const removedDocuments =
+    loadedDocuments.length;
+
+  loadedBusinesses = [];
+  loadedDocuments = [];
+
+  nextBusinessId = 1;
+  nextDocumentId = 1;
+
+  return {
+    success: true,
+
+    removedBusinesses,
+
+    removedDocuments,
+  };
+}
+
 
 // =====================================================
 // EXPORTS
@@ -833,4 +1305,8 @@ module.exports = {
   loadAllInputData,
   upsertBusiness,
   insertDocument,
+  getLoadedBusinesses,
+  getLoadedDocuments,
+  getLoadedData,
+  clearLoadedData,
 };
