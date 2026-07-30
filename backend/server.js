@@ -4,8 +4,6 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 
-const pool = require("./services/db");
-
 const loadRoutes = require("./routes/loadRoutes");
 const businessRoutes = require("./routes/businessRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
@@ -25,6 +23,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use(express.static(path.join(__dirname, "public")));
+
 app.use(
   "/screenshots",
   express.static(path.join(__dirname, "screenshots"))
@@ -46,80 +45,43 @@ app.use("/api/notifications", notificationRoutes);
 // HEALTH CHECK
 // =====================================================
 
-app.get("/health", async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT NOW() AS database_time"
-    );
-
-    res.json({
-      status: "ok",
-      database: "connected",
-      database_time: result.rows[0].database_time
-    });
-  } catch (error) {
-    console.error("Health check failed:", error);
-
-    res.status(500).json({
-      status: "error",
-      database: "not connected",
-      error: error.message
-    });
-  }
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    api: "online",
+    database: "disabled",
+    storage: "memory",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // =====================================================
 // SYSTEM STATUS
 // =====================================================
 
-app.get("/api/system/status", async (req, res) => {
-  try {
-    await pool.query("SELECT 1");
+app.get("/api/system/status", (req, res) => {
+  res.json({
+    api: "online",
+    database: "disabled",
+    storage: "memory",
+    chromium: "ready",
+    ollama: "pending",
+    businessesLoaded: 0,
+    verified: null,
+    needsReview: null,
+    averageConfidence: null,
+    timestamp: new Date().toISOString()
+  });
+});
 
-    let businessesLoaded = 0;
+// =====================================================
+// FALLBACK ROUTE
+// =====================================================
 
-    try {
-      const businesses = await pool.query(
-        "SELECT COUNT(*)::int AS total FROM businesses"
-      );
-
-      businessesLoaded =
-        businesses.rows[0].total;
-    } catch (err) {
-      console.warn(
-        "Unable to count businesses:",
-        err.message
-      );
-    }
-
-    res.json({
-      api: "online",
-      database: "connected",
-      chromium: "ready",
-      ollama: "pending",
-      businessesLoaded,
-      verified: null,
-      needsReview: null,
-      averageConfidence: null
-    });
-  } catch (error) {
-    console.error(
-      "System status failed:",
-      error
-    );
-
-    res.status(500).json({
-      api: "online",
-      database: "not connected",
-      chromium: "unknown",
-      ollama: "pending",
-      businessesLoaded: 0,
-      verified: null,
-      needsReview: null,
-      averageConfidence: null,
-      error: error.message
-    });
-  }
+app.get("*", (req, res) => {
+  res.sendFile(
+    path.join(__dirname, "public", "index.html")
+  );
 });
 
 // =====================================================
