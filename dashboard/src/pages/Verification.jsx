@@ -27,6 +27,9 @@ export default function Verification() {
         getBusinesses(),
       ]);
 
+      console.log("Businesses:", biz);
+      console.log("Verification History:", hist);
+
       setHistory(
         Array.isArray(hist)
           ? hist
