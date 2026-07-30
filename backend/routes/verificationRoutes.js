@@ -373,6 +373,8 @@ router.post(
 
         saved:
           verification.saved,
+
+        verification,
       });
     } catch (error) {
       console.error(
@@ -640,7 +642,8 @@ router.get(
       return res.json({
         success: true,
 
-        complete: false,
+        complete:
+          pendingBusinesses.length === 0,
 
         source:
           "In-memory queue",
@@ -733,6 +736,8 @@ router.post(
 
         saved:
           verification.saved,
+
+        verification,
 
         remaining:
           pendingBusinesses.length,
@@ -931,7 +936,38 @@ router.post(
             "failed"
         ).length;
 
-      pendingBusinesses = [];
+      const completedBusinessIds =
+        new Set(
+          results
+            .filter(
+              (item) =>
+                item.status ===
+                "completed"
+            )
+            .map(
+              (item) =>
+                String(
+                  item.business_id
+                )
+            )
+        );
+
+      pendingBusinesses =
+        pendingBusinesses.filter(
+          (business) =>
+            !completedBusinessIds.has(
+              String(
+                business.business_id
+              )
+            )
+        );
+
+      pendingBusinesses.forEach(
+        (business, index) => {
+          business.queue_position =
+            index + 1;
+        }
+      );
 
       return res.json({
         success: true,
@@ -955,6 +991,10 @@ router.post(
         failed,
 
         results,
+
+        // Frontend compatibility alias.
+        verifications:
+          results,
       });
     } catch (error) {
       console.error(
