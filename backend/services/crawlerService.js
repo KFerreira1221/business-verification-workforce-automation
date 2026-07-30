@@ -1,22 +1,13 @@
-const {
-  PlaywrightCrawler,
-} = require("crawlee");
-
 const path = require("path");
 const fs = require("fs");
+const { chromium } = require("playwright");
 
 const {
   scoreBusiness,
 } = require("./confidenceService");
 
-
-// =====================================================
-// SETTINGS
-// =====================================================
-
 const NAVIGATION_TIMEOUT = 30000;
-
-const MAX_PAGES_PER_BUSINESS = 8;
+const MAX_PAGES_PER_BUSINESS = 4;
 
 const USEFUL_LINK_WORDS = [
   "contact",
@@ -28,20 +19,10 @@ const USEFUL_LINK_WORDS = [
   "office",
   "offices",
   "company",
-  "team",
-  "careers",
-  "jobs",
 ];
 
-
-// =====================================================
-// URL HELPERS
-// =====================================================
-
 function buildUrlCandidates(rawWebsite) {
-  const cleaned = String(
-    rawWebsite || ""
-  ).trim();
+  const cleaned = String(rawWebsite || "").trim();
 
   if (!cleaned) {
     return [];
@@ -51,23 +32,15 @@ function buildUrlCandidates(rawWebsite) {
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, "");
 
-  const withoutWww =
-    withoutProtocol.replace(
-      /^www\./i,
-      ""
-    );
+  const withoutWww = withoutProtocol.replace(/^www\./i, "");
 
   return [
     `https://${withoutWww}`,
     `https://www.${withoutWww}`,
     `http://${withoutWww}`,
     `http://www.${withoutWww}`,
-  ].filter(
-    (url, index, urls) =>
-      urls.indexOf(url) === index
-  );
+  ].filter((url, index, urls) => urls.indexOf(url) === index);
 }
-
 
 function normalizeDomain(url) {
   try {
@@ -80,28 +53,15 @@ function normalizeDomain(url) {
   }
 }
 
+function classifyNavigationError(error) {
+  const message = String(error?.message || error).toLowerCase();
 
-// =====================================================
-// ERROR CLASSIFICATION
-// =====================================================
-
-function classifyNavigationError(
-  error
-) {
-  const message = String(
-    error?.message || error
-  ).toLowerCase();
-
-  if (
-    message.includes("timeout")
-  ) {
+  if (message.includes("timeout")) {
     return "timeout";
   }
 
   if (
-    message.includes(
-      "name_not_resolved"
-    ) ||
+    message.includes("name_not_resolved") ||
     message.includes("dns") ||
     message.includes("enotfound")
   ) {
@@ -109,12 +69,8 @@ function classifyNavigationError(
   }
 
   if (
-    message.includes(
-      "connection_refused"
-    ) ||
-    message.includes(
-      "econnrefused"
-    )
+    message.includes("connection_refused") ||
+    message.includes("econnrefused")
   ) {
     return "connection_refused";
   }
@@ -130,98 +86,52 @@ function classifyNavigationError(
   return "navigation_error";
 }
 
-
-// =====================================================
-// PAGE HELPERS
-// =====================================================
-
-function isSoft404(
-  text,
-  title
-) {
-  const combined =
-    `${title || ""} ${text || ""}`
-      .toLowerCase();
+function isSoft404(text, title) {
+  const combined = `${title || ""} ${text || ""}`.toLowerCase();
 
   const indicators = [
     "page not found",
     "404 not found",
-    "the page you requested could not be found",
     "this page does not exist",
-    "sorry, we couldn't find that page",
     "website unavailable",
   ];
 
-  return indicators.some(
-    (indicator) =>
-      combined.includes(indicator)
-  );
+  return indicators.some((indicator) => combined.includes(indicator));
 }
 
-
-function normalizeBusinessName(
-  businessName
-) {
-  return String(
-    businessName || ""
-  )
+function normalizeBusinessName(businessName) {
+  return String(businessName || "")
     .toLowerCase()
     .replace(
       /\b(llc|inc|corp|corporation|company|co|ltd|limited)\b/g,
       ""
     )
-    .replace(
-      /[^a-z0-9]/g,
-      ""
-    );
+    .replace(/[^a-z0-9]/g, "");
 }
 
-
-function businessNameMatchesPage(
-  businessName,
-  text,
-  title
-) {
+function businessNameMatchesPage(businessName, text, title) {
   const normalizedBusinessName =
-    normalizeBusinessName(
-      businessName
-    );
+    normalizeBusinessName(businessName);
 
-  const pageContent =
-    `${title || ""} ${text || ""}`
-      .toLowerCase()
-      .replace(
-        /[^a-z0-9]/g,
-        ""
-      );
+  const pageContent = `${title || ""} ${text || ""}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 
   return (
     normalizedBusinessName.length >= 3 &&
-    pageContent.includes(
-      normalizedBusinessName
-    )
+    pageContent.includes(normalizedBusinessName)
   );
 }
-
-
-// =====================================================
-// EXTRACTION HELPERS
-// =====================================================
 
 function uniqueValues(values) {
   return [
     ...new Set(
       values
-        .map(
-          (value) =>
-            String(value || "")
-              .trim()
-        )
+        .map((value) => String(value || "").trim())
         .filter(Boolean)
     ),
   ];
 }
-
 
 function extractPhones(text) {
   const matches =
@@ -232,7 +142,6 @@ function extractPhones(text) {
   return uniqueValues(matches);
 }
 
-
 function extractEmails(text) {
   const matches =
     String(text || "").match(
@@ -242,124 +151,73 @@ function extractEmails(text) {
   return uniqueValues(matches);
 }
 
-
 function extractAddresses(text) {
-  const cleanText =
-    String(text || "")
-      .replace(/\s+/g, " ");
+  const cleanText = String(text || "").replace(/\s+/g, " ");
 
   const addressRegex =
-    /\b\d{1,6}\s+[A-Za-z0-9.'\- ]{2,80}\s(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Way|Court|Ct|Parkway|Pkwy|Highway|Hwy|Place|Pl)\b(?:[.,\s]+(?:Suite|Ste|Unit|#)\s*[A-Za-z0-9-]+)?(?:[,\s]+[A-Za-z .'-]{2,40})?(?:[,\s]+(?:FL|Florida))?(?:[,\s]+\d{5}(?:-\d{4})?)?/gi;
+    /\b\d{1,6}\s+[A-Za-z0-9.'\- ]{2,80}\s(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Way|Court|Ct|Parkway|Pkwy|Highway|Hwy|Place|Pl)\b(?:[.,\s]+(?:Suite|Ste|Unit|#)\s*[A-Za-z0-9-]+)?(?:[,\s]+[A-Za-z .'-]{2,40})?(?:[,\s]+(?:FL|Florida|GA|Georgia|NY|New York|CA|California))?(?:[,\s]+\d{5}(?:-\d{4})?)?/gi;
 
-  const matches =
-    cleanText.match(
-      addressRegex
-    ) || [];
+  const matches = cleanText.match(addressRegex) || [];
 
   return uniqueValues(matches);
 }
 
-
-// =====================================================
-// LINK FILTER
-// =====================================================
-
-function isUsefulInternalUrl(
-  url,
-  rootDomain
-) {
+function isUsefulInternalUrl(url, rootDomain) {
   try {
-    const parsed =
-      new URL(url);
+    const parsed = new URL(url);
 
-    const domain =
-      parsed.hostname
-        .replace(/^www\./i, "")
-        .toLowerCase();
+    const domain = parsed.hostname
+      .replace(/^www\./i, "")
+      .toLowerCase();
 
-    if (
-      domain !== rootDomain
-    ) {
+    if (domain !== rootDomain) {
       return false;
     }
 
-    const pathText =
-      parsed.pathname
-        .toLowerCase();
+    const pathText = parsed.pathname.toLowerCase();
 
-    return USEFUL_LINK_WORDS.some(
-      (word) =>
-        pathText.includes(word)
+    return USEFUL_LINK_WORDS.some((word) =>
+      pathText.includes(word)
     );
   } catch {
     return false;
   }
 }
 
-
-// =====================================================
-// FIND FIRST WORKING WEBSITE
-// =====================================================
-
-async function findWorkingWebsite(
-  rawWebsite
-) {
-  const candidates =
-    buildUrlCandidates(
-      rawWebsite
-    );
-
+async function findWorkingWebsite(rawWebsite) {
+  const candidates = buildUrlCandidates(rawWebsite);
   const attempts = [];
 
-  const {
-    chromium,
-  } = require("playwright");
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ],
+  });
 
-  const browser =
-    await chromium.launch({
-      headless: true,
-    });
-
-  const page =
-    await browser.newPage();
+  const page = await browser.newPage();
 
   try {
-    for (
-      const candidate
-      of candidates
-    ) {
+    for (const candidate of candidates) {
       try {
-        const response =
-          await page.goto(
-            candidate,
-            {
-              waitUntil:
-                "domcontentloaded",
+        const response = await page.goto(candidate, {
+          waitUntil: "domcontentloaded",
+          timeout: NAVIGATION_TIMEOUT,
+        });
 
-              timeout:
-                NAVIGATION_TIMEOUT,
-            }
-          );
-
-        const httpStatus =
-          response?.status() ||
-          null;
-
-        const finalUrl =
-          page.url();
+        const httpStatus = response?.status() || null;
+        const finalUrl = page.url();
 
         const attempt = {
-          attemptedUrl:
-            candidate,
-
+          attemptedUrl: candidate,
           finalUrl,
-
           httpStatus,
-
           success:
             Boolean(response) &&
+            httpStatus >= 200 &&
             httpStatus < 400,
-
           errorType:
             httpStatus === 404
               ? "not_found"
@@ -374,49 +232,23 @@ async function findWorkingWebsite(
                       : null,
         };
 
-        attempts.push(
-          attempt
-        );
+        attempts.push(attempt);
 
-        if (
-          attempt.success
-        ) {
+        if (attempt.success) {
           return {
             success: true,
             finalUrl,
             attempts,
           };
         }
-
-        if (
-          attempt.errorType ===
-            "access_denied" ||
-          attempt.errorType ===
-            "rate_limited"
-        ) {
-          break;
-        }
       } catch (error) {
         attempts.push({
-          attemptedUrl:
-            candidate,
-
-          finalUrl:
-            null,
-
-          httpStatus:
-            null,
-
-          success:
-            false,
-
-          errorType:
-            classifyNavigationError(
-              error
-            ),
-
-          errorMessage:
-            error.message,
+          attemptedUrl: candidate,
+          finalUrl: null,
+          httpStatus: null,
+          success: false,
+          errorType: classifyNavigationError(error),
+          errorMessage: error.message,
         });
       }
     }
@@ -431,514 +263,319 @@ async function findWorkingWebsite(
   }
 }
 
-
-// =====================================================
-// VERIFY BUSINESS WITH CRAWLEE
-// =====================================================
-
-async function verifyBusiness(
-  businessName,
-  website
-) {
-  const screenshotsDir =
-    path.join(
-      __dirname,
-      "../screenshots"
-    );
-
-  const screenshotPath =
-    path.join(
-      screenshotsDir,
-      "current.png"
-    );
-
-  fs.mkdirSync(
-    screenshotsDir,
-    {
-      recursive: true,
-    }
+async function verifyBusiness(businessName, website) {
+  const screenshotsDir = path.join(
+    __dirname,
+    "../screenshots"
   );
 
-  if (
-    fs.existsSync(
-      screenshotPath
-    )
-  ) {
-    fs.unlinkSync(
-      screenshotPath
-    );
+  const screenshotPath = path.join(
+    screenshotsDir,
+    "current.png"
+  );
+
+  fs.mkdirSync(screenshotsDir, {
+    recursive: true,
+  });
+
+  if (fs.existsSync(screenshotPath)) {
+    fs.unlinkSync(screenshotPath);
   }
 
+  const initialWebsite = await findWorkingWebsite(website);
 
-  // ==================================================
-  // STEP 1 — FIND A WORKING DOMAIN
-  // ==================================================
-
-  const initialWebsite =
-    await findWorkingWebsite(
-      website
-    );
-
-  if (
-    !initialWebsite.success
-  ) {
+  if (!initialWebsite.success) {
     const lastAttempt =
-      initialWebsite
-        .attempts[
-          initialWebsite
-            .attempts
-            .length - 1
-        ];
+      initialWebsite.attempts[
+        initialWebsite.attempts.length - 1
+      ];
 
     return {
       businessName,
       website,
-
       reachable: false,
-
+      websiteVerified: false,
       confidence: 0,
-
-      status:
-        "needs_review",
-
+      status: "needs_review",
       errorType:
-        lastAttempt
-          ?.errorType ||
-        "unreachable",
-
+        lastAttempt?.errorType || "unreachable",
       errorMessage:
-        lastAttempt
-          ?.errorMessage ||
-        null,
-
-      attempts:
-        initialWebsite
-          .attempts,
-
+        lastAttempt?.errorMessage || null,
+      attempts: initialWebsite.attempts,
       pagesVisited: [],
-
       phones: [],
-
       emails: [],
-
       addresses: [],
-
-      screenshotAvailable:
-        false,
-
-      crawledAt:
-        new Date()
-          .toISOString(),
+      phoneFound: false,
+      emailFound: false,
+      addressFound: false,
+      screenshotAvailable: false,
+      crawledAt: new Date().toISOString(),
     };
   }
 
-
-  const startingUrl =
-    initialWebsite.finalUrl;
-
-  const rootDomain =
-    normalizeDomain(
-      startingUrl
-    );
-
-
-  // ==================================================
-  // COLLECTED EVIDENCE
-  // ==================================================
+  const startingUrl = initialWebsite.finalUrl;
+  const rootDomain = normalizeDomain(startingUrl);
 
   const pagesVisited = [];
-
   const phones = [];
-
   const emails = [];
-
   const addresses = [];
 
-  let businessNameFound =
-    false;
-
-  let screenshotSaved =
-    false;
-
+  let businessNameFound = false;
+  let screenshotSaved = false;
   let rootPageTitle = "";
+  let rootHttpStatus = null;
 
-  let rootHttpStatus =
-    null;
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ],
+  });
 
+  const page = await browser.newPage({
+    viewport: {
+      width: 1365,
+      height: 768,
+    },
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+  });
 
-  // ==================================================
-  // STEP 2 — CRAWLEE
-  // ==================================================
+  const urlsToVisit = [startingUrl];
+  const visitedUrls = new Set();
 
-  const crawler =
-    new PlaywrightCrawler({
+  try {
+    while (
+      urlsToVisit.length > 0 &&
+      visitedUrls.size < MAX_PAGES_PER_BUSINESS
+    ) {
+      const currentUrl = urlsToVisit.shift();
 
-      maxRequestsPerCrawl:
-        MAX_PAGES_PER_BUSINESS,
+      if (
+        !currentUrl ||
+        visitedUrls.has(currentUrl)
+      ) {
+        continue;
+      }
 
-      requestHandlerTimeoutSecs:
-        45,
+      visitedUrls.add(currentUrl);
 
-      navigationTimeoutSecs:
-        30,
-
-      maxConcurrency:
-        2,
-
-      launchContext: {
-        launchOptions: {
-          headless: true,
-        },
-      },
-
-
-      async requestHandler({
-        request,
-        page,
-        enqueueLinks,
-        log,
-      }) {
-
-        const url =
-          request.loadedUrl ||
-          request.url;
-
-        log.info(
-          `Researching ${businessName}: ${url}`
+      try {
+        console.log(
+          `[CRAWLER] Researching ${businessName}: ${currentUrl}`
         );
 
-        await page.waitForTimeout(
-          500
-        );
+        const response = await page.goto(currentUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: NAVIGATION_TIMEOUT,
+        });
 
+        await page.waitForTimeout(500);
 
-        const title =
-          await page.title();
+        const finalUrl = page.url();
+        const title = await page.title();
 
         const text =
-          (
-            await page.textContent(
-              "body"
-            )
-          ) || "";
+          (await page
+            .locator("body")
+            .innerText({
+              timeout: 10000,
+            })
+            .catch(() => "")) || "";
 
+        const httpStatus = response?.status() || null;
+        const soft404 = isSoft404(text, title);
 
-        const soft404 =
-          isSoft404(
-            text,
-            title
-          );
-
-
-        const response =
-          await page
-            .evaluate(
-              () =>
-                document
-                  .readyState
-            )
-            .catch(
-              () => null
-            );
-
-
-        if (
-          !rootPageTitle
-        ) {
-          rootPageTitle =
-            title;
+        if (!rootPageTitle) {
+          rootPageTitle = title;
+          rootHttpStatus = httpStatus;
         }
 
-
-        if (
+        const nameFound =
           businessNameMatchesPage(
             businessName,
             text,
             title
-          )
-        ) {
-          businessNameFound =
-            true;
+          );
+
+        if (nameFound) {
+          businessNameFound = true;
         }
 
+        const pagePhones = extractPhones(text);
+        const pageEmails = extractEmails(text);
+        const pageAddresses = extractAddresses(text);
 
-        const pagePhones =
-          extractPhones(
-            text
-          );
-
-        const pageEmails =
-          extractEmails(
-            text
-          );
-
-        const pageAddresses =
-          extractAddresses(
-            text
-          );
-
-
-        phones.push(
-          ...pagePhones
-        );
-
-        emails.push(
-          ...pageEmails
-        );
-
-        addresses.push(
-          ...pageAddresses
-        );
-
+        phones.push(...pagePhones);
+        emails.push(...pageEmails);
+        addresses.push(...pageAddresses);
 
         pagesVisited.push({
-          url,
+          url: finalUrl,
           title,
-
+          httpStatus,
           soft404,
-
-          businessNameFound:
-            businessNameMatchesPage(
-              businessName,
-              text,
-              title
-            ),
-
-          phones:
-            pagePhones,
-
-          emails:
-            pageEmails,
-
-          addresses:
-            pageAddresses,
-
-          checkedAt:
-            new Date()
-              .toISOString(),
+          businessNameFound: nameFound,
+          phones: pagePhones,
+          emails: pageEmails,
+          addresses: pageAddresses,
+          checkedAt: new Date().toISOString(),
         });
 
-
-        // --------------------------------------------
-        // Save one screenshot for frontend/demo.
-        // --------------------------------------------
-
-        if (
-          !soft404
-        ) {
+        if (!screenshotSaved && !soft404) {
           try {
             await page.screenshot({
-              path:
-                screenshotPath,
-
-              fullPage:
-                false,
+              path: screenshotPath,
+              fullPage: false,
             });
 
-            screenshotSaved =
-              true;
-          } catch (
-            screenshotError
-          ) {
-            log.warning(
-              `Screenshot failed: ${screenshotError.message}`
+            screenshotSaved = true;
+          } catch (screenshotError) {
+            console.error(
+              "[CRAWLER] Screenshot failed:",
+              screenshotError.message
             );
           }
         }
 
+        if (!soft404) {
+          const links = await page
+            .locator("a")
+            .evaluateAll((anchors) =>
+              anchors.map((anchor) => ({
+                href: anchor.href,
+                text: (
+                  anchor.innerText || ""
+                ).toLowerCase(),
+              }))
+            )
+            .catch(() => []);
 
-        // --------------------------------------------
-        // Find useful internal links
-        // --------------------------------------------
+          for (const link of links) {
+            if (
+              urlsToVisit.length +
+                visitedUrls.size >=
+              MAX_PAGES_PER_BUSINESS
+            ) {
+              break;
+            }
 
-        if (
-          !soft404
-        ) {
-          await enqueueLinks({
-            strategy:
-              "same-domain",
-
-            limit:
-              20,
-
-            transformRequestFunction:
-              (req) => {
-                if (
-                  !isUsefulInternalUrl(
-                    req.url,
-                    rootDomain
-                  )
-                ) {
-                  return false;
-                }
-
-                return req;
-              },
-          });
+            if (
+              isUsefulInternalUrl(
+                link.href,
+                rootDomain
+              ) &&
+              !visitedUrls.has(link.href) &&
+              !urlsToVisit.includes(link.href)
+            ) {
+              urlsToVisit.push(link.href);
+            }
+          }
         }
-      },
-
-
-      async failedRequestHandler({
-        request,
-        error,
-        log,
-      }) {
-        log.warning(
-          `Failed page: ${request.url} — ${error.message}`
-        );
-
+      } catch (error) {
         pagesVisited.push({
-          url:
-            request.url,
-
+          url: currentUrl,
           failed: true,
-
-          error:
-            error.message,
-
-          checkedAt:
-            new Date()
-              .toISOString(),
+          error: error.message,
+          errorType:
+            classifyNavigationError(error),
+          checkedAt: new Date().toISOString(),
         });
-      },
-    });
-
-
-  // ==================================================
-  // STEP 3 — RUN CRAWL
-  // ==================================================
-
-  try {
-    await crawler.run([
-      startingUrl,
-    ]);
-  } catch (error) {
-    console.error(
-      "[CRAWLER] Crawlee error:",
-      error
-    );
+      }
+    }
+  } finally {
+    await browser.close();
   }
 
-
-  // ==================================================
-  // STEP 4 — CLEAN EVIDENCE
-  // ==================================================
-
-  const uniquePhones =
-    uniqueValues(
-      phones
-    );
-
-  const uniqueEmails =
-    uniqueValues(
-      emails
-    );
-
-  const uniqueAddresses =
-    uniqueValues(
-      addresses
-    );
-
-
-  // ==================================================
-  // STEP 5 — BUILD EVIDENCE OBJECT
-  // ==================================================
+  const uniquePhones = uniqueValues(phones);
+  const uniqueEmails = uniqueValues(emails);
+  const uniqueAddresses = uniqueValues(addresses);
 
   const evidence = {
     businessName,
-
     website,
-
-    finalUrl:
-      startingUrl,
-
-    pageTitle:
-      rootPageTitle,
-
-    reachable:
-      pagesVisited.some(
-        (page) =>
-          !page.failed &&
-          !page.soft404
-      ),
-
-    httpStatus:
-      rootHttpStatus,
-
+    finalUrl: startingUrl,
+    pageTitle: rootPageTitle,
+    reachable: pagesVisited.some(
+      (pageItem) =>
+        !pageItem.failed &&
+        !pageItem.soft404
+    ),
+    websiteVerified: pagesVisited.some(
+      (pageItem) =>
+        !pageItem.failed &&
+        !pageItem.soft404
+    ),
+    httpStatus: rootHttpStatus,
     soft404:
       pagesVisited.length > 0 &&
       pagesVisited.every(
-        (page) =>
-          page.soft404
+        (pageItem) => pageItem.soft404
       ),
-
     businessNameFound,
-
-    phoneFound:
-      uniquePhones.length > 0,
-
-    addressFound:
-      uniqueAddresses.length > 0,
-
-    emailFound:
-      uniqueEmails.length > 0,
-
-    phones:
-      uniquePhones,
-
-    emails:
-      uniqueEmails,
-
-    addresses:
-      uniqueAddresses,
-
+    phoneFound: uniquePhones.length > 0,
+    addressFound: uniqueAddresses.length > 0,
+    emailFound: uniqueEmails.length > 0,
+    phones: uniquePhones,
+    emails: uniqueEmails,
+    addresses: uniqueAddresses,
     pagesVisited,
-
-    attempts:
-      initialWebsite.attempts,
-
-    pagesCrawled:
-      pagesVisited.length,
-
-    crawledAt:
-      new Date()
-        .toISOString(),
+    attempts: initialWebsite.attempts,
+    pagesCrawled: pagesVisited.length,
+    crawledAt: new Date().toISOString(),
   };
 
+  let confidence;
 
-  // ==================================================
-  // STEP 6 — SCORE
-  // ==================================================
-
-  const confidence =
-    scoreBusiness(
-      evidence
+  try {
+    confidence = scoreBusiness(evidence);
+  } catch (error) {
+    console.error(
+      "[CRAWLER] Confidence scoring failed:",
+      error.message
     );
 
+    confidence = 0;
+
+    if (evidence.reachable) {
+      confidence += 40;
+    }
+
+    if (evidence.businessNameFound) {
+      confidence += 20;
+    }
+
+    if (evidence.phoneFound) {
+      confidence += 15;
+    }
+
+    if (evidence.addressFound) {
+      confidence += 15;
+    }
+
+    if (evidence.emailFound) {
+      confidence += 10;
+    }
+
+    confidence = Math.min(confidence, 100);
+  }
 
   return {
     ...evidence,
-
     confidence,
-
     status:
       confidence >= 75
         ? "verified"
         : "needs_review",
-
     screenshotAvailable:
       screenshotSaved &&
-      fs.existsSync(
-        screenshotPath
-      ),
+      fs.existsSync(screenshotPath),
   };
 }
-
-
-// =====================================================
-// EXPORTS
-// =====================================================
 
 module.exports = {
   verifyBusiness,
