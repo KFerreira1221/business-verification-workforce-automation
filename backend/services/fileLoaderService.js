@@ -1,7 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const csv = require("csv-parser");
-const xlsx = require("xlsx");
 const mammoth = require("mammoth");
 const pool = require("./db");
 
@@ -10,19 +8,20 @@ const INPUT_FOLDER = path.join(
   "../data/input"
 );
 
-
 // =====================================================
 // FILE CATEGORIES
 // =====================================================
 
 function getCategory(fileName) {
-  const name = fileName.toLowerCase();
+  const name = String(fileName || "").toLowerCase();
 
+  // CSV and XLSX files remain visible in the input-file
+  // list, but they will not be imported into PostgreSQL.
   if (
     name.endsWith(".csv") ||
     name.endsWith(".xlsx")
   ) {
-    return "business_dataset";
+    return "business_dataset_disabled";
   }
 
   if (
@@ -48,7 +47,6 @@ function getCategory(fileName) {
   return "unknown";
 }
 
-
 // =====================================================
 // LIST INPUT FILES
 // =====================================================
@@ -60,395 +58,155 @@ async function listInputFiles() {
     );
   }
 
-  const files = fs.readdirSync(
-    INPUT_FOLDER
-  );
+  const files = fs.readdirSync(INPUT_FOLDER);
 
-  return files.map((file) => ({
-    fileName: file,
+  return files.map((fileName) => ({
+    fileName,
     extension: path
-      .extname(file)
+      .extname(fileName)
       .toLowerCase(),
-    category: getCategory(file),
+    category: getCategory(fileName),
     path: path.join(
       INPUT_FOLDER,
-      file
+      fileName
     ),
   }));
 }
 
-
 // =====================================================
-// CSV READER
-// =====================================================
-
-function readCsv(filePath) {
-  return new Promise(
-    (resolve, reject) => {
-      const rows = [];
-
-      fs.createReadStream(filePath)
-        .pipe(csv())
-
-        .on("data", (row) => {
-          rows.push(row);
-        })
-
-        .on("end", () => {
-          resolve(rows);
-        })
-
-        .on("error", reject);
-    }
-  );
-}
-
-
-// =====================================================
-// XLSX READER
-// =====================================================
-
-function readXlsx(filePath) {
-  const workbook =
-    xlsx.readFile(filePath);
-
-  const sheetName =
-    workbook.SheetNames[0];
-
-  return xlsx.utils.sheet_to_json(
-    workbook.Sheets[sheetName]
-  );
-}
-
-
-// =====================================================
-// NORMALIZE BUSINESS ROW
-// =====================================================
-
-function normalizeBusinessRow(row) {
-  return {
-    businessName: String(
-      row.business_name ||
-      row.businessName ||
-      row.BusinessName ||
-      row.Business ||
-      row.business ||
-      row.name ||
-      row.Name ||
-      ""
-    ).trim(),
-
-    website: String(
-      row.website ||
-      row.Website ||
-      row.business_website ||
-      row.BusinessWebsite ||
-      ""
-    ).trim() || null,
-
-    phone: String(
-      row.phone_number ||
-      row.phoneNumber ||
-      row.phone ||
-      row.Phone ||
-      ""
-    ).trim() || null,
-
-    email: String(
-      row.email ||
-      row.Email ||
-      ""
-    ).trim() || null,
-
-    industry: String(
-      row.industry ||
-      row.Industry ||
-      ""
-    ).trim() || null,
-
-    status: String(
-      row.status ||
-      row.business_status ||
-      row.Status ||
-      "Imported"
-    ).trim(),
-  };
-}
-
-
-// =====================================================
-// FIND OR CREATE / UPDATE BUSINESS
-// =====================================================
-
-async function upsertBusiness(row) {
-  const business =
-    normalizeBusinessRow(row);
-
-  if (!business.businessName) {
-    return null;
-  }
-
-  const result = await pool.query(
-    `
-    INSERT INTO businesses
-    (
-      business_name,
-      website,
-      phone_number,
-      email,
-      industry,
-      business_status
-    )
-    VALUES
-    ($1, $2, $3, $4, $5, $6)
-
-    ON CONFLICT (business_name)
-
-    DO UPDATE SET
-
-      website =
-        COALESCE(
-          EXCLUDED.website,
-          businesses.website
-        ),
-
-      phone_number =
-        COALESCE(
-          EXCLUDED.phone_number,
-          businesses.phone_number
-        ),
-
-      email =
-        COALESCE(
-          EXCLUDED.email,
-          businesses.email
-        ),
-
-      industry =
-        COALESCE(
-          EXCLUDED.industry,
-          businesses.industry
-        ),
-
-      business_status =
-        CASE
-          WHEN
-            businesses.business_status
-            = 'Imported From Document'
-          THEN
-            EXCLUDED.business_status
-          ELSE
-            businesses.business_status
-        END,
-
-      updated_at =
-        CURRENT_TIMESTAMP
-
-    RETURNING *
-    `,
-    [
-      business.businessName,
-      business.website,
-      business.phone,
-      business.email,
-      business.industry,
-      business.status,
-    ]
-  );
-
-  return result.rows[0];
-}
-
-
-// =====================================================
-// LOAD BUSINESS DATASET
+// BUSINESS DATASET IMPORT DISABLED
 // =====================================================
 
 async function loadBusinessDataset() {
-  const files =
-    await listInputFiles();
+  console.log(
+    "[DATASET] Business CSV/XLSX import is disabled."
+  );
 
-  const datasetFiles =
-    files.filter(
-      (file) =>
-        file.category ===
-        "business_dataset"
-    );
-
-  const imported = [];
-
-  for (const file of datasetFiles) {
-    let rows = [];
-
-    if (
-      file.extension === ".csv"
-    ) {
-      rows =
-        await readCsv(file.path);
-    }
-
-    if (
-      file.extension === ".xlsx"
-    ) {
-      rows =
-        readXlsx(file.path);
-    }
-
-    console.log(
-      `[DATASET] Processing ${file.fileName}`
-    );
-
-    console.log(
-      `[DATASET] Rows found: ${rows.length}`
-    );
-
-    for (const row of rows) {
-      const business =
-        await upsertBusiness(row);
-
-      if (business) {
-        imported.push(business);
-      }
-    }
-  }
+  console.log(
+    "[DATASET] Businesses must be created through the Businesses page."
+  );
 
   return {
+    success: true,
+    disabled: true,
     message:
-      "Business dataset imported",
-
-    filesProcessed:
-      datasetFiles.map(
-        (file) => file.fileName
-      ),
-
-    count:
-      imported.length,
-
-    imported,
+      "Business dataset import is disabled. Add businesses through the Businesses page.",
+    filesProcessed: [],
+    count: 0,
+    imported: [],
   };
 }
 
+// =====================================================
+// COMPATIBILITY FUNCTION
+// =====================================================
+
+async function upsertBusiness() {
+  throw new Error(
+    "Business dataset import is disabled. Add or update businesses through the Businesses API."
+  );
+}
 
 // =====================================================
-// DOCX TEXT
+// DOCX TEXT EXTRACTION
 // =====================================================
 
-async function extractDocxText(
-  filePath
-) {
+async function extractDocxText(filePath) {
   const result =
     await mammoth.extractRawText({
       path: filePath,
     });
 
-  return result.value.trim();
+  return String(
+    result.value || ""
+  ).trim();
 }
-
 
 // =====================================================
 // DOCUMENT TYPE
 // =====================================================
 
-function detectDocumentType(
-  fileName
-) {
+function detectDocumentType(fileName) {
   const name =
-    fileName.toLowerCase();
+    String(fileName || "").toLowerCase();
 
-  if (
-    name.includes("license")
-  ) {
+  if (name.includes("license")) {
     return "Business License";
   }
 
-  if (
-    name.includes("vendor")
-  ) {
+  if (name.includes("vendor")) {
     return "Vendor Registration";
   }
 
-  if (
-    name.includes("w9")
-  ) {
+  if (name.includes("w9")) {
     return "W9 Form";
   }
 
-  if (
-    name.includes("insurance")
-  ) {
+  if (name.includes("insurance")) {
     return "Insurance Certificate";
   }
 
-  if (
-    name.includes("invoice")
-  ) {
+  if (name.includes("invoice")) {
     return "Invoice";
   }
 
-  if (
-    name.includes("onboarding")
-  ) {
+  if (name.includes("onboarding")) {
     return "Employee Onboarding";
   }
 
-  if (
-    name.includes("background")
-  ) {
+  if (name.includes("background")) {
     return "Background Check";
   }
 
-  if (
-    name.includes("training")
-  ) {
+  if (name.includes("training")) {
     return "Employee Training";
   }
 
-  if (
-    name.includes("employment")
-  ) {
+  if (name.includes("employment")) {
     return "Employment Verification";
   }
 
-  if (
-    name.includes("compliance")
-  ) {
+  if (name.includes("compliance")) {
     return "Compliance Certificate";
   }
 
   return "Unknown Document";
 }
 
-
 // =====================================================
 // GENERIC FIELD EXTRACTOR
 // =====================================================
 
-function extractValue(
-  text,
-  label
-) {
+function escapeRegex(value) {
+  return String(value).replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
+}
+
+function extractValue(text, label) {
+  const safeLabel =
+    escapeRegex(label);
+
   const regex =
     new RegExp(
-      `${label}:\\s*(.+)`,
-      "i"
+      `^${safeLabel}:\\s*(.+)$`,
+      "im"
     );
 
   const match =
-    text.match(regex);
+    String(text || "").match(regex);
 
   return match
     ? match[1].trim()
     : null;
 }
 
-
 // =====================================================
 // EXTRACT DOCUMENT FIELDS
 // =====================================================
 
-function extractDocumentFields(
-  text
-) {
+function extractDocumentFields(text) {
   return {
     businessName:
       extractValue(
@@ -548,7 +306,6 @@ function extractDocumentFields(
   };
 }
 
-
 // =====================================================
 // FIND EXISTING BUSINESS
 // =====================================================
@@ -556,85 +313,119 @@ function extractDocumentFields(
 async function findBusinessByName(
   businessName
 ) {
-  if (!businessName) {
+  const normalizedName =
+    String(
+      businessName || ""
+    ).trim();
+
+  if (!normalizedName) {
     return null;
   }
 
   const result =
     await pool.query(
       `
-      SELECT *
-      FROM businesses
-      WHERE LOWER(business_name)
-        = LOWER($1)
-      LIMIT 1
+        SELECT *
+        FROM businesses
+        WHERE LOWER(TRIM(business_name))
+          = LOWER(TRIM($1))
+        LIMIT 1
       `,
-      [businessName]
+      [normalizedName]
     );
 
-  return (
-    result.rows[0] ||
-    null
-  );
+  return result.rows[0] || null;
 }
 
-
 // =====================================================
-// GET OR CREATE BUSINESS FOR DOCUMENT
+// DOCUMENT BUSINESS LOOKUP
 // =====================================================
 
-async function getOrCreateBusiness(
+async function getExistingBusiness(
   businessName
 ) {
   if (!businessName) {
     return null;
   }
 
-  const existing =
+  const business =
     await findBusinessByName(
       businessName
     );
 
-  if (existing) {
-    return existing;
-  }
-
-  const result =
-    await pool.query(
-      `
-      INSERT INTO businesses
-      (
-        business_name,
-        business_status
-      )
-      VALUES ($1, $2)
-
-      ON CONFLICT (business_name)
-
-      DO UPDATE SET
-        updated_at =
-          CURRENT_TIMESTAMP
-
-      RETURNING *
-      `,
-      [
-        businessName,
-        "Imported From Document",
-      ]
+  if (!business) {
+    console.log(
+      `[DOCUMENT] No existing PostgreSQL business matched: ${businessName}`
     );
 
-  return result.rows[0];
+    console.log(
+      "[DOCUMENT] The document will be stored without creating a placeholder business."
+    );
+  }
+
+  return business;
 }
 
+// =====================================================
+// SAFE DATE VALUE
+// =====================================================
+
+function normalizeDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return date
+    .toISOString()
+    .slice(0, 10);
+}
 
 // =====================================================
-// INSERT DOCUMENT
+// INSERT OR UPDATE DOCUMENT
 // =====================================================
 
 async function insertDocument(
   file,
   category
 ) {
+  if (!file?.path) {
+    throw new Error(
+      "A valid document file path is required."
+    );
+  }
+
+  const extension =
+    String(
+      file.extension ||
+      path.extname(file.path)
+    ).toLowerCase();
+
+  if (extension !== ".docx") {
+    console.log(
+      `[DOCUMENT] Skipped unsupported file: ${file.fileName}`
+    );
+
+    return {
+      skipped: true,
+      reason:
+        "Only DOCX document extraction is currently supported.",
+      fileName:
+        file.fileName,
+      category,
+    };
+  }
+
   const text =
     await extractDocxText(
       file.path
@@ -654,7 +445,7 @@ async function insertDocument(
 
   if (extracted.businessName) {
     const business =
-      await getOrCreateBusiness(
+      await getExistingBusiness(
         extracted.businessName
       );
 
@@ -663,16 +454,15 @@ async function insertDocument(
       null;
   }
 
-  // Avoid inserting the same document
-  // over and over on repeated imports.
-
+  // Find an existing document by name so repeated
+  // imports update rather than duplicate it.
   const existingDocument =
     await pool.query(
       `
-      SELECT document_id
-      FROM documents
-      WHERE document_name = $1
-      LIMIT 1
+        SELECT document_id
+        FROM documents
+        WHERE document_name = $1
+        LIMIT 1
       `,
       [file.fileName]
     );
@@ -680,8 +470,7 @@ async function insertDocument(
   let document;
 
   if (
-    existingDocument.rows.length
-    > 0
+    existingDocument.rows.length > 0
   ) {
     const documentId =
       existingDocument
@@ -691,15 +480,15 @@ async function insertDocument(
     const updated =
       await pool.query(
         `
-        UPDATE documents
-        SET
-          business_id = $1,
-          document_type = $2,
-          file_path = $3,
-          processing_status = 'Processed',
-          processed_at = CURRENT_TIMESTAMP
-        WHERE document_id = $4
-        RETURNING *
+          UPDATE documents
+          SET
+            business_id = $1,
+            document_type = $2,
+            file_path = $3,
+            processing_status = 'Processed',
+            processed_at = CURRENT_TIMESTAMP
+          WHERE document_id = $4
+          RETURNING *
         `,
         [
           businessId,
@@ -714,9 +503,9 @@ async function insertDocument(
 
     await pool.query(
       `
-      DELETE FROM
-        extracted_document_data
-      WHERE document_id = $1
+        DELETE FROM
+          extracted_document_data
+        WHERE document_id = $1
       `,
       [documentId]
     );
@@ -724,25 +513,25 @@ async function insertDocument(
     const inserted =
       await pool.query(
         `
-        INSERT INTO documents
-        (
-          business_id,
-          document_name,
-          document_type,
-          file_path,
-          processing_status,
-          processed_at
-        )
-        VALUES
-        (
-          $1,
-          $2,
-          $3,
-          $4,
-          'Processed',
-          CURRENT_TIMESTAMP
-        )
-        RETURNING *
+          INSERT INTO documents
+          (
+            business_id,
+            document_name,
+            document_type,
+            file_path,
+            processing_status,
+            processed_at
+          )
+          VALUES
+          (
+            $1,
+            $2,
+            $3,
+            $4,
+            'Processed',
+            CURRENT_TIMESTAMP
+          )
+          RETURNING *
         `,
         [
           businessId,
@@ -756,61 +545,64 @@ async function insertDocument(
       inserted.rows[0];
   }
 
-  // ==================================================
-  // SAVE EXTRACTED DATA
-  // ==================================================
+  const extractedDate =
+    normalizeDate(
+      extracted.extractedDate
+    );
 
   await pool.query(
     `
-    INSERT INTO
-    extracted_document_data
-    (
-      document_id,
-      extracted_text,
-      extracted_business_name,
-      extracted_employee_name,
-      extracted_vendor_name,
-      extracted_address,
-      extracted_phone,
-      extracted_email,
-      extracted_license_number,
-      extracted_invoice_number,
-      extracted_amount,
-      extracted_tin,
-      extracted_document_status,
-      extracted_training_name,
-      extracted_coverage_type,
-      extracted_date,
-      confidence_score
-    )
-    VALUES
-    (
-      $1,
-      $2,
-      $3,
-      $4,
-      $5,
-      $6,
-      $7,
-      $8,
-      $9,
-      $10,
-      NULLIF(
-        REGEXP_REPLACE(
-          COALESCE($11, ''),
-          '[^0-9.]',
-          '',
-          'g'
-        ),
-        ''
-      )::DECIMAL,
-      $12,
-      $13,
-      $14,
-      $15,
-      NULLIF($16, '')::DATE,
-      $17
-    )
+      INSERT INTO
+        extracted_document_data
+      (
+        document_id,
+        extracted_text,
+        extracted_business_name,
+        extracted_employee_name,
+        extracted_vendor_name,
+        extracted_address,
+        extracted_phone,
+        extracted_email,
+        extracted_license_number,
+        extracted_invoice_number,
+        extracted_amount,
+        extracted_tin,
+        extracted_document_status,
+        extracted_training_name,
+        extracted_coverage_type,
+        extracted_date,
+        confidence_score
+      )
+      VALUES
+      (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+
+        NULLIF(
+          REGEXP_REPLACE(
+            COALESCE($11, ''),
+            '[^0-9.]',
+            '',
+            'g'
+          ),
+          ''
+        )::DECIMAL,
+
+        $12,
+        $13,
+        $14,
+        $15,
+        NULLIF($16, '')::DATE,
+        $17
+      )
     `,
     [
       document.document_id,
@@ -828,7 +620,7 @@ async function insertDocument(
       extracted.documentStatus,
       extracted.trainingName,
       extracted.coverageType,
-      extracted.extractedDate,
+      extractedDate,
       80,
     ]
   );
@@ -836,6 +628,15 @@ async function insertDocument(
   console.log(
     `[DOCUMENT] Imported ${file.fileName}`
   );
+
+  if (
+    extracted.businessName &&
+    !businessId
+  ) {
+    console.log(
+      `[DOCUMENT] Saved without a business link because "${extracted.businessName}" does not exist in PostgreSQL.`
+    );
+  }
 
   return {
     documentId:
@@ -850,10 +651,12 @@ async function insertDocument(
 
     businessId,
 
+    linkedToExistingBusiness:
+      Boolean(businessId),
+
     ...extracted,
   };
 }
-
 
 // =====================================================
 // LOAD BUSINESS DOCUMENTS
@@ -863,7 +666,7 @@ async function loadBusinessDocuments() {
   const files =
     await listInputFiles();
 
-  const docs =
+  const documents =
     files.filter(
       (file) =>
         file.category ===
@@ -871,27 +674,47 @@ async function loadBusinessDocuments() {
     );
 
   const imported = [];
+  const errors = [];
 
-  for (const file of docs) {
-    imported.push(
-      await insertDocument(
-        file,
-        "business_document"
-      )
-    );
+  for (const file of documents) {
+    try {
+      const result =
+        await insertDocument(
+          file,
+          "business_document"
+        );
+
+      imported.push(result);
+    } catch (error) {
+      console.error(
+        `[DOCUMENT] Failed to import ${file.fileName}:`,
+        error
+      );
+
+      errors.push({
+        fileName:
+          file.fileName,
+        message:
+          error.message,
+      });
+    }
   }
 
   return {
     message:
-      "Business documents imported",
+      "Business documents processed",
 
     count:
       imported.length,
 
+    errorCount:
+      errors.length,
+
     imported,
+
+    errors,
   };
 }
-
 
 // =====================================================
 // LOAD EMPLOYEE DOCUMENTS
@@ -901,7 +724,7 @@ async function loadEmployeeDocuments() {
   const files =
     await listInputFiles();
 
-  const docs =
+  const documents =
     files.filter(
       (file) =>
         file.category ===
@@ -909,35 +732,64 @@ async function loadEmployeeDocuments() {
     );
 
   const imported = [];
+  const errors = [];
 
-  for (const file of docs) {
-    imported.push(
-      await insertDocument(
-        file,
-        "employee_document"
-      )
-    );
+  for (const file of documents) {
+    try {
+      const result =
+        await insertDocument(
+          file,
+          "employee_document"
+        );
+
+      imported.push(result);
+    } catch (error) {
+      console.error(
+        `[DOCUMENT] Failed to import ${file.fileName}:`,
+        error
+      );
+
+      errors.push({
+        fileName:
+          file.fileName,
+        message:
+          error.message,
+      });
+    }
   }
 
   return {
     message:
-      "Employee documents imported",
+      "Employee documents processed",
 
     count:
       imported.length,
 
+    errorCount:
+      errors.length,
+
     imported,
+
+    errors,
   };
 }
 
-
 // =====================================================
-// LOAD EVERYTHING
+// LOAD ALL PROJECT DATA
 // =====================================================
 
 async function loadAllInputData() {
-  const businesses =
-    await loadBusinessDataset();
+  console.log(
+    "[IMPORT] Starting document-only project import..."
+  );
+
+  console.log(
+    "[IMPORT] CSV/XLSX business dataset import is disabled."
+  );
+
+  console.log(
+    "[IMPORT] PostgreSQL businesses are the source of truth."
+  );
 
   const businessDocuments =
     await loadBusinessDocuments();
@@ -945,10 +797,23 @@ async function loadAllInputData() {
   const employeeDocuments =
     await loadEmployeeDocuments();
 
+  console.log(
+    "[IMPORT] Document-only project import completed."
+  );
+
   return {
     success: true,
 
-    businesses,
+    message:
+      "Project documents loaded. Business CSV/XLSX import is disabled.",
+
+    businesses: {
+      disabled: true,
+      message:
+        "Businesses must be added through the Businesses page.",
+      count: 0,
+      imported: [],
+    },
 
     businessDocuments,
 
@@ -956,6 +821,9 @@ async function loadAllInputData() {
   };
 }
 
+// =====================================================
+// EXPORTS
+// =====================================================
 
 module.exports = {
   listInputFiles,
